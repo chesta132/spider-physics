@@ -11,6 +11,7 @@ const BLOCKS := [
 	[-6, 6, 3, 1.0, 3],
 	[-20, -8, 6, 3, 6],
 	[26, 4, 4, 0.5, 10],
+	[-30, 0, 8, 40, 8],  # tall platform for high super-jump dives (Step 2)
 ]
 
 

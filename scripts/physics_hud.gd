@@ -79,22 +79,24 @@ func _process(_delta: float) -> void:
 	var a: Vector3 = _p.accel
 	var r: Vector3 = _p.global_position
 	var m := CTRL.MASS
+	var ke := 0.5 * m * v.length_squared()
+	var ug := m * CTRL.G * r.y
 	var lines := PackedStringArray()
 	lines.append("PHYSICS [F3]   state: %s" % CTRL.STATE_NAMES[_p.state])
 	lines.append("Position r = (%.2f, %.2f, %.2f) m" % [r.x, r.y, r.z])
 	lines.append("Velocity v = (%.2f, %.2f, %.2f) m/s   |v| = %.2f m/s" % [v.x, v.y, v.z, v.length()])
 	lines.append("Acceleration a = (%.2f, %.2f, %.2f) m/s^2" % [a.x, a.y, a.z])
 	lines.append("Momentum p = m v = (%.0f, %.0f, %.0f) kg m/s" % [m * v.x, m * v.y, m * v.z])
-	lines.append("Kinetic K = %.0f J   Gravitational U = %.0f J (ref y=0)" % [0.5 * m * v.length_squared(), m * CTRL.G * r.y])
-	lines.append("Forces: F_g %.0f N  F_N %.0f N  F_app %.0f N  F_d %.0f N" % [_p.f_g.length(), _p.f_n.length(), _p.f_app.length(), _p.f_d.length()])
-	lines.append("Net sum F = %.0f N   |a| = %.2f m/s^2" % [_p.net.length(), a.length()])
-	lines.append("Last jump impulse J = %.0f N s" % _p.last_impulse.length())
+	lines.append("Energy K = %.0f J   U = %.0f J   E = K+U = %.0f J   lost to drag = %.0f J" % [ke, ug, ke + ug, _p.drag_loss])
+	lines.append("Forces: F_g %.0f  F_N %.0f  F_app %.0f  F_d %.0f  net %.0f N" % [_p.f_g.length(), _p.f_n.length(), _p.f_app.length(), _p.f_d.length(), _p.net.length()])
+	lines.append("Last event: %s   J = %.0f N s   peak F_N = %.0f N" % [_p.last_event, _p.last_impulse.length(), _p.peak_fn])
 	lines.append("Circular motion a_c = v^2/r: dormant (swing not built yet)")
 	if DEV:
 		var col := "none"
 		if _p.get_slide_collision_count() > 0:
 			col = str(_p.get_slide_collision(0).get_normal().snapped(Vector3.ONE * 0.01))
-		lines.append("DEV grounded=%s airborne=%s fly=%s sprint=%s" % [_p.grounded, not _p.grounded, _p.fly, _p.sprint])
+		lines.append("DEV grounded=%s airborne=%s fly=%s sprint=%s charging=%s" % [_p.grounded, not _p.grounded, _p.fly, _p.sprint, _p.charging])
+		lines.append("DEV diving=%s fast=%s air_peak=%.2f m landing=%s" % [_p.diving, _p.fast, _p.air_peak, _p.landing])
 		lines.append("DEV collision normal: %s   floor normal: %s" % [col, _p.get_floor_normal().snapped(Vector3.ONE * 0.01)])
 		lines.append("DEV FPS %d   physics %d tick/s   frame %d" % [Engine.get_frames_per_second(), Engine.physics_ticks_per_second, Engine.get_physics_frames()])
 	_text.text = "\n".join(lines)

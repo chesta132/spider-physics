@@ -1,24 +1,38 @@
 extends CharacterBody3D
-## Physics movement controller (Step 1: idle, walk, run, jump, fall, dev fly).
-## Each step sums explicit forces, integrates velocity, then move_and_slide resolves contacts.
-## Child "Visual" is cosmetic only. Its "Body" mesh is recolored per state. Swap the rigged model in later.
+## Physics movement controller.
+## Step 1: idle, walk, run, jump, fall, dev fly. Step 2: charged super jump, dive and fast dive,
+## and a Landing state after heavy drops. Each step sums explicit forces, integrates velocity, then
+## move_and_slide resolves contacts. Godot's solver owns the touchdown; this script only reads it.
+## Child "Visual" is cosmetic only; its "Body" mesh is recolored per state.
 
-enum State { IDLE, WALK, RUN, JUMP, FALL, FLY }
-const STATE_NAMES := ["IDLE", "WALK", "RUN", "JUMP", "FALL/DIVE", "DEV-FLY"]
+enum State { IDLE, WALK, RUN, JUMP, FALL, FLY, CHARGE, SUPER, DIVE, FAST_DIVE, LAND }
+const STATE_NAMES := ["IDLE", "WALK", "RUN", "JUMP", "FALL", "DEV-FLY", "CHARGE", "SUPER JUMP", "DIVE", "FAST DIVE", "LAND"]
 const STATE_COLORS := [
 	Color(0.6, 0.6, 0.6), Color(0.2, 0.8, 0.3), Color(1.0, 0.55, 0.0),
 	Color(0.2, 0.8, 1.0), Color(0.9, 0.2, 0.8), Color(1.0, 1.0, 1.0),
+	Color(1.0, 0.9, 0.1), Color(0.6, 0.1, 1.0), Color(0.1, 0.3, 1.0),
+	Color(1.0, 0.1, 0.1), Color(0.5, 0.3, 0.1),
 ]
 
 const MASS := 70.0           # kg
 const G := 9.8               # m/s^2
 const WALK_SPEED := 5.0      # m/s
 const RUN_SPEED := 9.0       # m/s
-const MU_GRIP := 6.5         # ground grip coefficient (game tuning, not rubber-on-concrete). Caps traction.
-const GRIP_ACCEL := MU_GRIP * G  # m/s^2, max ground accel or brake; 5 m/s stop ~0.08 s, 9 m/s ~0.14 s
-const AIR_ACCEL := 2.0       # m/s^2, air steering force cap
-const JUMP_HEIGHT := 1.2     # m
-const DRAG_K := 0.3          # kg/m, F_d = k |v| v  (0.5 * rho 1.2 * Cd 1.0 * A 0.5)
+const MU_GRIP := 6.5         # ground grip coefficient (game tuning). Caps traction.
+const GRIP_ACCEL := MU_GRIP * G  # m/s^2, max ground accel or brake
+const AIR_ACCEL := 2.0       # m/s^2, air steering outside a dive
+const JUMP_HEIGHT := 1.2     # m, tap jump apex
+const SUPER_HEIGHT := 10.0   # m, full-charge apex
+const SUPER_HORIZ := 8.0     # m/s, horizontal launch speed when WASD held at release
+const CHARGE_TIME := 1.0     # s, hold time for full charge
+const TAP_TIME := 0.2        # s, a shorter hold is a normal jump
+const CONTACT_T := 0.05      # s, push-off contact time; launch force = J / CONTACT_T
+const DRAG_K := 0.3          # kg/m, normal air drag: F_d = k |v| v
+const DRAG_K_FAST := 0.15    # kg/m, fast dive: smaller effective cross-section
+const DIVE_DROP := 2.0       # m below the air peak before a dive begins
+const DIVE_STEER := 3.0      # m/s^2, normal dive steering
+const DIVE_STEER_FAST := 1.0 # m/s^2, fast dive steering
+const LAND_DROP := 3.0       # m, a fall this far below the air peak counts as a heavy landing
 const TURN_RATE := 12.0      # 1/s, visual turn smoothing
 const FLY_SPEED := 14.0      # m/s, dev noclip only
 
@@ -34,6 +48,19 @@ var f_d := Vector3.ZERO
 var net := Vector3.ZERO
 var accel := Vector3.ZERO
 var last_impulse := Vector3.ZERO
+var last_event := "none"
+var peak_fn := 0.0           # N, largest normal force from the last launch or touchdown
+var impact_force := 0.0      # N, normal force of the solver's stop on the touchdown frame: m * dv / dt
+var charging := false
+var charge_t := 0.0          # s, how long jump is held on the ground
+var launch_super := false    # true while rising from a super jump
+var landing := false         # true from a heavy touchdown until the player gives input
+var diving := false
+var fast := false
+var air_peak := 0.0          # m, highest point since leaving the ground
+var drag_loss := 0.0         # J, energy removed by air drag since takeoff
+
+var _shown := -1
 
 @onready var visual: Node3D = $Visual
 @onready var state_label: Label3D = $StateLabel
@@ -43,35 +70,117 @@ func _physics_process(dt: float) -> void:
 	if OS.is_debug_build() and Input.is_action_just_pressed("debug_fly"):
 		fly = not fly
 		velocity = Vector3.ZERO
+		charging = false
+		launch_super = false
+		landing = false
+		drag_loss = 0.0
 	wish = _camera_relative_wish()
 	sprint = Input.is_action_pressed("sprint")
 	if fly:
 		_fly(dt)
 	else:
 		_walk(dt)
-	_set_state(state_for(fly, grounded, velocity.y, wish.length_squared() > 0.01, sprint))
+	_set_state(_refine_state(state_for(fly, grounded, velocity.y, wish.length_squared() > 0.01, sprint)))
 	_turn_visual(dt)
 
 
 func _walk(dt: float) -> void:
-	var want := wish * (RUN_SPEED if sprint else WALK_SPEED)
+	var was_grounded := grounded
 	grounded = is_on_floor()
-	f_g = Vector3(0, -MASS * G, 0)
-	f_n = Vector3(0, MASS * G, 0) if grounded else Vector3.ZERO
-	# Grounded: F_app is ground traction (friction). Airborne: F_app is weak steering only, momentum is kept.
-	f_app = traction(Vector3(velocity.x, 0, velocity.z), want, dt) if grounded else wish * AIR_ACCEL * MASS
-	f_d = drag(velocity)
+	if grounded:
+		air_peak = global_position.y
+	else:
+		air_peak = maxf(air_peak, global_position.y)  # highest point of the arc, for the dive threshold
+
+	# Landing is opposite of idle: any movement or jump input ends it.
+	if wish.length_squared() > 0.01 or Input.is_action_just_pressed("jump"):
+		landing = false
+
+	var want := wish * (RUN_SPEED if sprint else WALK_SPEED)
+	diving = not grounded and velocity.y < 0.0 and air_peak - global_position.y >= DIVE_DROP
+	fast = diving and Input.is_action_pressed("fast_dive")
+
+	# Jump: a press starts a charge on the ground. The release picks tap jump or super jump.
 	if grounded and Input.is_action_just_pressed("jump"):
-		var dv := jump_speed()
-		velocity.y = dv
-		last_impulse = Vector3(0, MASS * dv, 0)  # Ch.6: J = m dv
+		charging = true
+		charge_t = 0.0
+	if charging:
+		if grounded:
+			charge_t += dt
+		else:
+			charging = false  # walked off the edge mid-charge: no launch
+	if charging and Input.is_action_just_released("jump"):
+		_launch()
+
+	if charging:
+		want = Vector3.ZERO  # crouch-charge: brake horizontally, WASD only sets the launch direction
+	f_g = Vector3(0, -MASS * G, 0)
+	if grounded:
+		f_n = Vector3(0, MASS * G, 0)
+		f_app = traction(Vector3(velocity.x, 0, velocity.z), want, dt)
+	else:
+		f_n = Vector3.ZERO
+		var steer := DIVE_STEER_FAST if fast else (DIVE_STEER if diving else AIR_ACCEL)
+		f_app = wish * steer * MASS
+	f_d = drag(velocity, DRAG_K_FAST if fast else DRAG_K)
 	net = f_g + f_n + f_app + f_d
 	accel = net / MASS
 	velocity += accel * dt
-	move_and_slide()
-	grounded = is_on_floor()
-	if grounded and velocity.y < 0.0:
-		velocity.y = 0.0
+	if not grounded:
+		drag_loss += -f_d.dot(velocity) * dt
+	var pre_vy := velocity.y
+	move_and_slide()  # the solver stops the body on the floor; nothing below writes velocity.y
+	var now_grounded := is_on_floor()
+	if was_grounded and not now_grounded:
+		air_peak = global_position.y  # takeoff
+	if now_grounded and not was_grounded:
+		impact_force = 0.0
+		if pre_vy < -0.5:
+			impact_force = MASS * absf(velocity.y - pre_vy) / dt  # FBD spike: the solver's stop, shown not integrated
+			_touchdown(-pre_vy, air_peak - global_position.y)
+	grounded = now_grounded
+	if not grounded:
+		landing = false
+
+
+func _launch() -> void:
+	charging = false
+	landing = false
+	var tap := charge_t < TAP_TIME
+	var charge := 0.0 if tap else clampf(charge_t / CHARGE_TIME, 0.0, 1.0)
+	var old_v := velocity
+	velocity.y = speed_for_height(super_height(charge))
+	if not tap and wish.length_squared() > 0.01:
+		velocity.x = wish.x * SUPER_HORIZ
+		velocity.z = wish.z * SUPER_HORIZ
+	grounded = false  # skip this frame's ground traction so the launch velocity stays intact
+	launch_super = not tap
+	last_impulse = MASS * (velocity - old_v)  # Ch.6: J = m dv
+	peak_fn = MASS * G + last_impulse.length() / CONTACT_T
+	last_event = "Jump" if tap else "Super jump"
+	air_peak = global_position.y
+	drag_loss = 0.0
+
+
+func _touchdown(impact: float, drop: float) -> void:
+	last_impulse = Vector3(0, MASS * impact, 0)  # Ch.6: J = m dv, the ground removes this momentum
+	peak_fn = MASS * G + impact_force
+	launch_super = false
+	landing = drop >= LAND_DROP
+	last_event = "Landing"
+
+
+func _refine_state(s: State) -> State:
+	if grounded and landing:
+		return State.LAND
+	if charging:
+		return State.CHARGE
+	if not grounded and (s == State.JUMP or s == State.FALL):
+		if diving:
+			return State.FAST_DIVE if fast else State.DIVE
+		if launch_super and velocity.y > 0.0:
+			return State.SUPER
+	return s
 
 
 func _fly(dt: float) -> void:
@@ -98,10 +207,18 @@ func _turn_visual(dt: float) -> void:
 
 
 func _set_state(s: State) -> void:
-	if s == state and state_label.text == STATE_NAMES[s]:
-		return
+	var label: String = STATE_NAMES[s]
+	if s == State.CHARGE:
+		var n := roundi(clampf(charge_t / CHARGE_TIME, 0.0, 1.0) * 10.0)
+		var bar := ""
+		for i in 10:
+			bar += "#" if i < n else "-"
+		label += "  [" + bar + "]"
 	state = s
-	state_label.text = STATE_NAMES[s]
+	state_label.text = label
+	if s == _shown:
+		return
+	_shown = s
 	state_label.modulate = STATE_COLORS[s]
 	var mat := StandardMaterial3D.new()
 	mat.albedo_color = STATE_COLORS[s]
@@ -128,12 +245,20 @@ static func traction(h_vel: Vector3, want: Vector3, dt: float) -> Vector3:
 	return dv * MASS / dt
 
 
-static func drag(v: Vector3) -> Vector3:
-	return -DRAG_K * v.length() * v
+static func drag(v: Vector3, k: float = DRAG_K) -> Vector3:
+	return -k * v.length() * v
+
+
+static func speed_for_height(h: float) -> float:
+	return sqrt(2.0 * G * h)
 
 
 static func jump_speed() -> float:
-	return sqrt(2.0 * G * JUMP_HEIGHT)
+	return speed_for_height(JUMP_HEIGHT)
+
+
+static func super_height(charge: float) -> float:
+	return lerpf(JUMP_HEIGHT, SUPER_HEIGHT, charge)
 
 
 static func state_for(fly_on: bool, on_floor: bool, vy: float, moving: bool, run: bool) -> State:

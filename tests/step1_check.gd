@@ -130,6 +130,8 @@ func _initialize() -> void:
 	for i in 3:
 		await physics_frame
 	Input.action_release("jump")
+	for i in 2:  # jump fires on release in Step 2: one frame to launch, one to report
+		await physics_frame
 	check("jump enters JUMP state, v_y ~ sqrt(2gh), impulse = m*v_y", p.state == PC.State.JUMP and absf(p.last_impulse.y - PC.MASS * PC.jump_speed()) < 1.0)
 
 	print("RESULT: ", "ALL PASS" if fails == 0 else "%d FAIL" % fails)
