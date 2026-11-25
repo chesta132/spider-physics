@@ -65,7 +65,7 @@ bind/9/pose = Transform3D(1.0000007, 6.608116e-06, 0.0003761528, 1.152784e-06, 0
 
 [node name="PlayerRig" type="Node3D" unique_id=1203301315]
 
-[node name="Skeleton3D" type="Skeleton3D" parent="." unique_id=1262880874]
+[node name="Skeleton" type="Skeleton3D" parent="." unique_id=1262880874]
 bones/0/name = "Root"
 bones/0/parent = -1
 bones/0/rest = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 3.183668e-07, 0.73932517, -0.016178261)
