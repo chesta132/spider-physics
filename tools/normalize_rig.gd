@@ -17,12 +17,21 @@ const JOINTS := {
 	"Hip": Vector3(0.176, 0.66, 0.0),
 	"Knee": Vector3(0.176, 0.40, 0.0),
 }
+## Gait parameters per clip. Angles in degrees; "swing" is the amplitude about the joint's X axis.
+## knee/knee_base: flex peaks as the leg passes under the body swinging forward, never in stance.
+## elbow/elbow_swing: runners hold the elbow bent throughout; walkers nearly straighten it.
 const CLIPS := [
-	["idle", 2.0, 8, 0.0, 1.5, 0.8, 0.0, 0.0, 0.0, 0.0],
-	["walk", 1.0, 24, 30.0, 14.0, 2.5, 3.0, 1.0, 14.0, 10.0],
-	["run", 0.6, 24, 42.0, 34.0, 10.0, 5.0, 0.85, 30.0, 25.0],
+	{"name": "idle", "len": 2.0, "keys": 12, "thigh": 0.0, "knee": 0.0, "knee_base": 0.0,
+		"arm": 1.5, "elbow": 3.0, "elbow_swing": 0.0, "lean": 0.8, "yaw": 0.0, "bob": 0.0,
+		"shoulder": 0.0, "splay": 2.0},
+	{"name": "walk", "len": 1.0, "keys": 32, "thigh": 32.0, "knee": 34.0, "knee_base": 3.0,
+		"arm": 20.0, "elbow": 8.0, "elbow_swing": 16.0, "lean": 2.5, "yaw": 3.0, "bob": 1.0,
+		"shoulder": 0.04, "splay": 9.0},
+	{"name": "run", "len": 0.6, "keys": 48, "thigh": 46.0, "knee": 62.0, "knee_base": 6.0,
+		"arm": 40.0, "elbow": 68.0, "elbow_swing": 22.0, "lean": 10.0, "yaw": 5.0, "bob": 0.92,
+		"shoulder": 0.05, "splay": 16.0},
 ]
-const ROT_BONES := ["Torso", "Head", "UpperArm.L", "UpperArm.R", "Forearm.L", "Forearm.R",
+const ROT_BONES := ["Torso", "Head", "Shoulder.L", "Shoulder.R", "UpperArm.L", "UpperArm.R", "Forearm.L", "Forearm.R",
 	"Hand.L", "Hand.R", "Thigh.L", "Thigh.R", "LowerLeg.L", "LowerLeg.R"]
 
 var _f := 0
@@ -280,12 +289,13 @@ func _build_anim(rig: Node3D) -> void:
 	rig.add_child(ap)
 	var lib := AnimationLibrary.new()
 	for c in CLIPS:
-		lib.add_animation(c[0], _clip(c))
+		lib.add_animation(c["name"], _clip(c))
 	ap.add_animation_library("moves", lib)
 
-func _clip(c: Array) -> Animation:
+
+func _clip(c: Dictionary) -> Animation:
 	var a := Animation.new()
-	a.length = c[1]
+	a.length = c["len"]
 	a.loop_mode = Animation.LOOP_LINEAR
 	var tracks := {}
 	for b in ROT_BONES:
@@ -297,13 +307,14 @@ func _clip(c: Array) -> Animation:
 	a.track_set_path(head, "Skeleton:Head")
 	var rest_hips := _sk.get_bone_rest(_sk.find_bone("Hips")).origin
 	var rest_head := _sk.get_bone_rest(_sk.find_bone("Head")).origin
-	for i in int(c[2]) + 1:
-		var p := float(i) / float(c[2])
-		var time := p * float(c[1])
-		var dy := 0.0
-		if float(c[7]) > 0.0:
-			var legs := _leg_pose(c, p)
-			dy = -float(c[7]) * _lowest_y(legs)
+	var keys: int = c["keys"]
+	for i in keys + 1:  # last key repeats phase 0, so the loop closes exactly
+		var p := float(i) / float(keys)
+		var time := p * float(c["len"])
+		# Hip bob is calibrated, not guessed: the foot is one rigid box with the leg, so its toe
+		# dips in mid-swing. Lift the hips by the measured lowest vertex so the stance foot sits
+		# on the street; bob < 1 leaves the run's extension peak airborne.
+		var dy := -float(c["bob"]) * _lowest_y(_leg_pose(c, p))
 		var pose := _pose(c, fmod(p, 1.0), dy)
 		for b in ROT_BONES:
 			a.rotation_track_insert_key(tracks[b], time, Quaternion.from_euler(pose[b]))
@@ -311,32 +322,55 @@ func _clip(c: Array) -> Animation:
 		a.position_track_insert_key(head, time, rest_head + Vector3(0.0, pose["head_dy"], 0.0))
 	return a
 
-func _leg_pose(c: Array, p: float) -> Array:
-	var s := sin(TAU * p)
-	var a: float = c[3] * s
-	var k: float = c[8]
-	return [a, k * maxf(0.0, -s), -a, k * maxf(0.0, s)]
 
-func _pose(c: Array, p: float, dy: float) -> Dictionary:
+## Gait phase, 0 = left heel strike. The left leg is at full forward extension at phase 0 and its
+## knee flexes hardest a quarter-cycle later, mid-swing (phase 0.75), while the foot is clear of the
+## ground. Flexing at the forward extreme instead reads as a high-knee march, and a form that depends
+## only on the thigh angle bends both knees together at the passing pose, where a real gait has one
+## straight stance leg.
+func _leg_pose(c: Dictionary, p: float) -> Array:
+	var thigh: float = c["thigh"]
+	var base: float = c["knee_base"]
+	var amp: float = c["knee"]
+	var lf := pow(maxf(0.0, 0.5 + 0.5 * cos(TAU * (p - 0.75))), 1.5)  # left knee flex, 0..1
+	var rf := pow(maxf(0.0, 0.5 - 0.5 * cos(TAU * (p - 0.75))), 1.5)  # right leg is half a cycle off
+	return [-thigh * cos(TAU * p), base + amp * lf, thigh * cos(TAU * p), base + amp * rf]
+
+
+func _pose(c: Dictionary, p: float, dy: float) -> Dictionary:
 	var ph := TAU * p
-	var s := sin(ph)
-	var idle: bool = float(c[3]) == 0.0
-	var arm: float = c[4]
-	var lean: float = c[5]
-	var yaw: float = c[6]
-	var elbow: float = c[9]
+	var cosf := cos(ph)  # +1 = left leg forward, right leg back
+	var sinf := sin(ph)
+	var idle: bool = float(c["thigh"]) == 0.0
+	var arm: float = c["arm"]
+	var lean: float = c["lean"]
+	var yaw: float = c["yaw"]
+	var elbow: float = c["elbow"]
+	var eswing: float = c["elbow_swing"]
+	var sh: float = c["shoulder"]
+	var splay: float = c["splay"]
 	var legs := _leg_pose(c, p)
 	var pose := {}
-	pose["Torso"] = Vector3((lean * s if idle else lean + lean * 0.15 * sin(2.0 * ph)) * D2R,
-		(0.0 if idle else yaw * s) * D2R, (1.4 * s if idle else 0.8 * s) * D2R)
-	pose["Head"] = Vector3((-lean * s if idle else -lean * 0.7) * D2R,
-		(0.0 if idle else -yaw * 0.5 * s) * D2R, 0.0)
-	pose["UpperArm.L"] = Vector3(-arm * s * D2R, 0.0, 2.0 * D2R)
-	pose["UpperArm.R"] = Vector3(arm * s * D2R, 0.0, -2.0 * D2R)
-	pose["Forearm.L"] = Vector3(-elbow * (0.5 - 0.5 * s) * D2R, 0.0, 0.0)
-	pose["Forearm.R"] = Vector3(-elbow * (0.5 + 0.5 * s) * D2R, 0.0, 0.0)
-	pose["Hand.L"] = Vector3.ZERO
-	pose["Hand.R"] = Vector3.ZERO
+	pose["Torso"] = Vector3((lean * sinf if idle else lean + lean * 0.15 * sin(2.0 * ph)) * D2R,
+		(0.0 if idle else yaw * cosf) * D2R, (1.4 * sinf if idle else 0.8 * cosf) * D2R)
+	pose["Head"] = Vector3((-lean * sinf if idle else -lean * 0.7) * D2R,
+		(0.0 if idle else -yaw * 0.5 * cosf) * D2R, 0.0)
+	# Shoulder rolls the whole arm a couple of degrees; the upper arm pivot is the real joint.
+	pose["Shoulder.L"] = Vector3(0.0, 0.0, (0.0 if idle else sh * cosf))
+	pose["Shoulder.R"] = Vector3(0.0, 0.0, (0.0 if idle else -sh * cosf))
+	# Contralateral and at the same extremes as the legs: left arm back while the left leg is forward.
+	# Splay holds the arm clear of the torso: the shoulder sits inside the torso's own width, so a
+	# bent elbow would otherwise push the hand through the chest.
+	pose["UpperArm.L"] = Vector3(arm * cosf * D2R, 0.0, splay * D2R)
+	pose["UpperArm.R"] = Vector3(-arm * cosf * D2R, 0.0, -splay * D2R)
+	# Elbow: a held base flexion plus a swing that peaks as that arm swings forward (phase 0.5 for
+	# the left arm). Never negative, so the forearm cannot hyperextend.
+	var fl := pow(0.5 - 0.5 * cosf, 2.0)
+	var fr := pow(0.5 + 0.5 * cosf, 2.0)
+	pose["Forearm.L"] = Vector3(-(elbow + eswing * fl) * D2R, 0.0, 0.0)
+	pose["Forearm.R"] = Vector3(-(elbow + eswing * fr) * D2R, 0.0, 0.0)
+	pose["Hand.L"] = Vector3(-0.15 * (elbow + eswing * fl) * D2R, 0.0, 0.0)
+	pose["Hand.R"] = Vector3(-0.15 * (elbow + eswing * fr) * D2R, 0.0, 0.0)
 	pose["Thigh.L"] = Vector3(legs[0] * D2R, 0.0, 0.0)
 	pose["LowerLeg.L"] = Vector3(legs[1] * D2R, 0.0, 0.0)
 	pose["Thigh.R"] = Vector3(legs[2] * D2R, 0.0, 0.0)
@@ -344,6 +378,7 @@ func _pose(c: Array, p: float, dy: float) -> Dictionary:
 	pose["hips_dy"] = dy
 	pose["head_dy"] = 0.005 * sin(2.0 * ph) if idle else 0.0
 	return pose
+
 
 func _lowest_y(legs: Array) -> float:
 	_sk.reset_bone_poses()
