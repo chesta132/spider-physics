@@ -5,14 +5,14 @@ extends CharacterBody3D
 ## move_and_slide resolves contacts. Godot's solver owns the touchdown; this script only reads it.
 ## Child "Visual" is cosmetic only; its "Body" mesh is recolored per state.
 
-enum State { IDLE, WALK, RUN, JUMP, FALL, FLY, CHARGE, SUPER, DIVE, FAST_DIVE, LAND, ZIP, WATCHING, SWING_UP, SWING_DOWN }
-const STATE_NAMES := ["IDLE", "WALK", "RUN", "JUMP", "FALL", "DEV-FLY", "CHARGE", "SUPER JUMP", "DIVE", "FAST DIVE", "LAND", "ZIP", "WATCHING", "SWING UP", "SWING DOWN"]
+enum State { IDLE, WALK, RUN, JUMP, FALL, FLY, CHARGE, SUPER, DIVE, FAST_DIVE, LAND, ZIP, WATCHING, SWING_UP, SWING_DOWN, SWING_JUMP }
+const STATE_NAMES := ["IDLE", "WALK", "RUN", "JUMP", "FALL", "DEV-FLY", "CHARGE", "SUPER JUMP", "DIVE", "FAST DIVE", "LAND", "ZIP", "WATCHING", "SWING UP", "SWING DOWN", "SWING JUMP"]
 const STATE_COLORS := [
 	Color(0.6, 0.6, 0.6), Color(0.2, 0.8, 0.3), Color(1.0, 0.55, 0.0),
 	Color(0.2, 0.8, 1.0), Color(0.9, 0.2, 0.8), Color(1.0, 1.0, 1.0),
 	Color(1.0, 0.9, 0.1), Color(0.6, 0.1, 1.0), Color(0.1, 0.3, 1.0),
 	Color(1.0, 0.1, 0.1), Color(0.5, 0.3, 0.1), Color(0.0, 0.95, 0.85), Color(0.55, 0.35, 0.95),
-	Color(0.35, 0.8, 1.0), Color(0.1, 0.35, 0.9),
+	Color(0.35, 0.8, 1.0), Color(0.1, 0.35, 0.9), Color(0.95, 1.0, 0.35),
 ]
 
 const MASS := 70.0           # kg
@@ -36,6 +36,9 @@ const DIVE_STEER_FAST := 1.0 # m/s^2, fast dive steering
 const LAND_DROP := 3.0       # m, a fall this far below the air peak counts as a heavy landing
 const TURN_RATE := 12.0      # 1/s, visual turn smoothing
 const SWING_VY := 1.5        # m/s, |velocity.y| above this splits the swing into up/down states
+const SWING_JUMP_UP := 6.0   # m/s, upward kick of a jump taken out of a swing
+const SWING_JUMP_FWD := 3.0  # m/s, forward kick of a swing jump
+const SWING_LAUNCH_TIME := 0.8  # s, how long a swing launch keeps the SWING JUMP state
 const FLY_SPEED := 14.0      # m/s, dev noclip only
 
 var state := State.IDLE
@@ -59,6 +62,8 @@ var charge_t := 0.0          # s, how long jump is held on the ground
 var launch_super := false    # true while rising from a super jump
 var landing := false         # true from a heavy touchdown until the player gives input
 var watching := false        # perched on a rooftop edge, holding still until input
+var holding := false         # jump held on the ground, before the charge delay elapses
+var swing_launch_t := 0.0    # s, SWING JUMP window left after leaving an up-swing
 var diving := false
 var fast := false
 var air_peak := 0.0          # m, highest point since leaving the ground
@@ -79,7 +84,9 @@ func _physics_process(dt: float) -> void:
 		fly = not fly
 		velocity = Vector3.ZERO
 		charging = false
+		holding = false
 		launch_super = false
+		swing_launch_t = 0.0
 		landing = false
 		drag_loss = 0.0
 	wish = _camera_relative_wish()
@@ -116,17 +123,28 @@ func _walk(dt: float) -> void:
 	diving = not grounded and velocity.y < 0.0 and air_peak - global_position.y >= DIVE_DROP
 	fast = diving and Input.is_action_pressed("fast_dive")
 
-	# Jump: a press starts a charge on the ground. The release picks tap jump or super jump.
+	# Jump: a press starts a hold on the ground. Movement is untouched until the hold passes
+	# TAP_TIME; only then does the crouch-charge engage and brake. Release picks tap or super.
 	if grounded and Input.is_action_just_pressed("jump"):
-		charging = true
+		holding = true
 		charge_t = 0.0
-	if charging:
+		charging = false
+	if holding:
 		if grounded:
 			charge_t += dt
+			if charge_t >= TAP_TIME:
+				charging = true  # the crouch now owns movement
 		else:
-			charging = false  # walked off the edge mid-charge: no launch
-	if charging and Input.is_action_just_released("jump"):
+			holding = false  # walked off the edge mid-hold: no launch
+			charging = false
+	if holding and Input.is_action_just_released("jump"):
+		holding = false
 		_launch()
+
+	# Swing jump: Space while a web holds you launches off the arc, with its own state.
+	if Input.is_action_just_pressed("jump") and not grounded and _web_on():
+		_swing_jump()
+	swing_launch_t = maxf(swing_launch_t - dt, 0.0)
 
 	if charging:
 		want = Vector3.ZERO  # crouch-charge: brake horizontally, WASD only sets the launch direction
@@ -182,6 +200,8 @@ func _launch_web(w, fwd: Vector3) -> void:
 	var kick: Vector3 = w.release(fwd, velocity.length())
 	if kick != Vector3.ZERO:
 		velocity += kick
+		if velocity.y > 0.0:
+			swing_launch_t = SWING_LAUNCH_TIME  # released on the up-swing: a swing launch
 
 
 func _web_step(dt: float) -> Vector3:
@@ -270,8 +290,22 @@ func _watching(dt: float) -> void:
 		_web_input()
 
 
+func _swing_jump() -> void:
+	var fwd := _flat_forward()
+	web_l.release(fwd, velocity.length())
+	web_r.release(fwd, velocity.length())
+	var kick := Vector3.UP * SWING_JUMP_UP + fwd * SWING_JUMP_FWD
+	velocity += kick
+	swing_launch_t = SWING_LAUNCH_TIME
+	last_impulse = MASS * kick
+	last_event = "Swing jump"
+	charging = false
+	holding = false
+
+
 func _launch() -> void:
 	charging = false
+	holding = false
 	landing = false
 	var tap := charge_t < TAP_TIME
 	var charge := 0.0 if tap else clampf(charge_t / CHARGE_TIME, 0.0, 1.0)
@@ -293,6 +327,7 @@ func _touchdown(impact: float, drop: float) -> void:
 	last_impulse = Vector3(0, MASS * impact, 0)  # Ch.6: J = m dv, the ground removes this momentum
 	peak_fn = MASS * G + impact_force
 	launch_super = false
+	swing_launch_t = 0.0
 	landing = drop >= LAND_DROP
 	last_event = "Landing"
 
@@ -311,6 +346,8 @@ func _refine_state(s: State) -> State:
 		if state == State.SWING_UP or state == State.SWING_DOWN:
 			return state
 		return State.SWING_UP
+	if not grounded and swing_launch_t > 0.0 and velocity.y > 0.0:
+		return State.SWING_JUMP
 	if grounded and landing:
 		return State.LAND
 	if charging:

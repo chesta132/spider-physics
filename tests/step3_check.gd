@@ -3,6 +3,7 @@ extends SceneTree
 ## release cases A/B; falling strand; F3 pendulum readout.
 ## Run: godot --headless -s tests/step3_check.gd
 
+const PC := preload("res://scripts/player_controller.gd")
 const MASS := 70.0
 const G := 9.8
 var fails := 0
@@ -117,6 +118,32 @@ func _initialize() -> void:
 	var txt: String = hud._text.text
 	check("HUD shows tension and circular metrics", txt.contains("T =") and txt.contains("a_c = v^2/r") and txt.contains("F_c = m v^2/r"))
 	print("HUD pendulum lines:\n", txt)
+
+	# 8. Swing jump: Space out of a swing gets its own state
+	for i in 60:
+		await physics_frame
+	p.global_position = Vector3(0, 9.0, 12.0)
+	p.velocity = Vector3.ZERO
+	for i in 5:
+		await physics_frame
+	cam.rotation.x = -0.9
+	cam.rotation.y = 0.0
+	check("swing re-attached for the swing-jump test", wl.fire(cam, p.get_rid()))
+	var rose := false
+	for i in 60:
+		await physics_frame
+		if p.velocity.y > 1.0:
+			rose = true
+			break
+	check("body is ascending on the web", rose)
+	Input.action_press("jump")
+	for i in 3:
+		await physics_frame
+	Input.action_release("jump")
+	check("Space on a swing gives SWING JUMP (state %s)" % PC.STATE_NAMES[p.state], p.state == PC.State.SWING_JUMP)
+	check("swing jump releases the web", not p._web_on())
+	for i in 60:
+		await physics_frame
 
 	print("RESULT: ", "ALL PASS" if fails == 0 else "%d FAIL" % fails)
 	quit(1 if fails else 0)

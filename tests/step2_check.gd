@@ -80,5 +80,45 @@ func _initialize() -> void:
 	check("holding Shift in dive reaches FAST DIVE", fast.fast_seen)
 	check("fast dive reaches higher speed than normal dive", fast.dive_speed > sup.dive_speed)
 
+	# 8. Hold delay: a tap jump must not brake; only a long hold charges and brakes
+	p.global_position = Vector3(0, 0.1, 40)
+	p.velocity = Vector3.ZERO
+	for i in 10:
+		await physics_frame
+	Input.action_press("move_forward")
+	for i in 40:
+		await physics_frame
+	var pre: float = Vector2(p.velocity.x, p.velocity.z).length()
+	Input.action_press("jump")
+	for i in 2:
+		await physics_frame
+	var mid: float = Vector2(p.velocity.x, p.velocity.z).length()
+	Input.action_release("jump")
+	await physics_frame
+	check("tap jump does not brake (%.2f -> %.2f m/s)" % [pre, mid], mid > pre * 0.85)
+	check("tap jump never enters CHARGE", p.state != PC.State.CHARGE)
+	Input.action_release("move_forward")
+	for i in 90:
+		await physics_frame
+
+	p.global_position = Vector3(0, 0.1, 40)
+	p.velocity = Vector3.ZERO
+	for i in 10:
+		await physics_frame
+	Input.action_press("move_forward")
+	for i in 40:
+		await physics_frame
+	var moving: float = Vector2(p.velocity.x, p.velocity.z).length()
+	Input.action_press("jump")
+	for i in 30:
+		await physics_frame
+	check("long hold enters CHARGE", p.state == PC.State.CHARGE)
+	var braked: float = Vector2(p.velocity.x, p.velocity.z).length()
+	check("charge brakes movement (%.2f -> %.2f m/s)" % [moving, braked], braked < 0.6)
+	Input.action_release("jump")
+	Input.action_release("move_forward")
+	for i in 120:
+		await physics_frame
+
 	print("RESULT: ", "ALL PASS" if fails == 0 else "%d FAIL" % fails)
 	quit(1 if fails else 0)
