@@ -53,6 +53,20 @@ func _initialize() -> void:
 	check("player collides with the boundary (mask %d)" % p.collision_mask,
 		(p.collision_mask & Layers.BOUNDARY) != 0)
 
+	# The barrier must be tall enough to clear any swing, and sit exactly 3 m inside the map edge.
+	var fp: Variant = JSON.parse_string(FileAccess.get_file_as_string("res://assets/maps/footprint.json"))
+	var tallest := 0.0
+	var face_x := INF
+	for s in shells:
+		var bs := ((s as StaticBody3D).get_child(0) as CollisionShape3D).shape as BoxShape3D
+		tallest = maxf(tallest, (s as StaticBody3D).global_position.y + bs.size.y * 0.5)
+		# A west-edge wall is one whose playable side is +x: its max-x is the face the player meets.
+		if bs.size.y > 50.0 and bs.size.x <= 4.0:
+			face_x = minf(face_x, (s as StaticBody3D).global_position.x + bs.size.x * 0.5)
+	var edge_x := float(fp["bounds"][0])
+	check("barrier top clears any swing (top %.0f m)" % tallest, tallest >= 600.0)
+	check("barrier sits %.1f m inside the map edge" % (face_x - edge_x), absf(face_x - (edge_x + 3.0)) < 0.75)
+
 	# The shell must enclose the map: four rays from above the city hit it in every direction,
 	# while a gameplay ray (WORLD mask) passes straight through.
 	var high := Vector3(0, 170, 0)  # above the tallest building (150 m), below the shell top
@@ -69,9 +83,26 @@ func _initialize() -> void:
 	check("no gameplay ray can see the boundary (%d/4 leaked)" % leaked, leaked == 0)
 
 	# Standing outside the shell, aimed straight at it: web and zip must find nothing.
-	var wall_c: Vector3 = (shells[0] as StaticBody3D).global_position
-	var x0: float = wall_c.x - 13.0
-	p.global_position = Vector3(x0, 4.0, wall_c.z)
+	# Westernmost barrier wall: a tall box (the floor is flat) with the smallest min-x. Its inner
+	# face is the east side of that box, which is where the slam test drives in from the west.
+	var west: StaticBody3D = null
+	var west_min := INF
+	var west_size := Vector3.ZERO
+	for s in shells:
+		var bs := ((s as StaticBody3D).get_child(0) as CollisionShape3D).shape as BoxShape3D
+		if bs.size.y < 50.0:
+			continue
+		var mn: float = (s as StaticBody3D).global_position.x - bs.size.x * 0.5
+		if mn < west_min:
+			west_min = mn
+			west = s
+			west_size = bs.size
+	# The body drives in from the west (+x), so the first face it meets is the box's west side.
+	var wall_c: Vector3 = Vector3(west.global_position.x - west_size.x * 0.5, west.global_position.y, west.global_position.z)
+	# Drive at the barrier from 8 m up, 4 m out: a body on the road plane slides and stops on the
+	# asphalt before it reaches the barrier, so the check must be airborne to exercise the wall.
+	var x0: float = wall_c.x - 4.0
+	p.global_position = Vector3(x0, 8.0, wall_c.z)
 	p.velocity = Vector3.ZERO
 	var pivot_b: Node3D = p.get_node("Pivot")
 	pivot_b.set("yaw", -PI * 0.5)  # camera forward = +X, straight at the shell
@@ -89,9 +120,10 @@ func _initialize() -> void:
 	p.velocity = Vector3(25.0, 0, 0)
 	for i in 90:
 		await physics_frame
-	check("the boundary stops a body crossing it (x %.1f, shell face %.1f)" % [
-		p.global_position.x, wall_c.x - 2.0],
-		p.global_position.x > x0 + 5.0 and p.global_position.x < wall_c.x - 1.5)
+	# Body centre stops one capsule radius (0.4 m) short of the barrier's inner face.
+	check("the boundary stops a body crossing it (x %.2f, face %.2f)" % [
+		p.global_position.x, wall_c.x],
+		absf(p.global_position.x - (wall_c.x - 0.4)) < 0.15 and p.velocity.length() < 0.5)
 
 	p.global_position = Vector3(0, 0.05, 0)  # back to the spawn for the wall-crawl checks
 	p.velocity = Vector3.ZERO
