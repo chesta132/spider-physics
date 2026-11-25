@@ -53,6 +53,18 @@ func _initialize() -> void:
 	check("hint sits on the roof top (y=%.2f)" % perch_pt.y, absf(perch_pt.y - 12.0) < 0.3)
 	look(cam, cam.global_position + Vector3(0, 40, 0))
 	check("no perch hint at open sky", not z.find_perch(cam, p.get_rid()))
+	check("hint point cleared when the camera leaves the building", z.perch == Vector3.ZERO and not z.has_perch)
+	await process_frame
+	await process_frame
+	check("hint icon hidden once the camera leaves the building", not z._reticle.visible)
+	# Off-axis: the same corner, 30 degrees away from the crosshair, must not hint
+	look(cam, Vector3(49.8, 12, 17.8))
+	var on_axis: bool = z.find_perch(cam, p.get_rid())
+	var corner: Vector3 = z.perch
+	var to_corner := (corner - cam.global_position).normalized()
+	var off := to_corner.rotated(Vector3.UP, deg_to_rad(30.0))
+	look(cam, cam.global_position + off * 20.0)
+	check("hint needs the corner near the crosshair (on-axis=%s)" % on_axis, on_axis and not z.find_perch(cam, p.get_rid()))
 
 	# 3. Ctrl with a hint: zip to the perch, settle into WATCHING
 	look(cam, Vector3(49.8, 12, 17.8))
@@ -76,6 +88,13 @@ func _initialize() -> void:
 		await physics_frame
 	check("watching holds still for 1.5 s (moved %.3f m)" % p.global_position.distance_to(hold), p.global_position.distance_to(hold) < 0.05)
 	check("still WATCHING while idle", p.state == p.State.WATCHING)
+	# Ctrl while watching, aimed at nothing, must not disturb the perch
+	look(cam, cam.global_position + Vector3(0, 40, 0))
+	Input.action_press("zip")
+	for i in 6:
+		await physics_frame
+	Input.action_release("zip")
+	check("Ctrl with nothing aimed keeps WATCHING", p.state == p.State.WATCHING)
 
 	# 4. Space from the perch: point launch
 	Input.action_press("jump")
@@ -105,33 +124,48 @@ func _initialize() -> void:
 	Input.action_release("move_forward")
 	check("WASD ends watching", p.state != p.State.WATCHING)
 
-	# 6. No hint: a forward air dash, no web into empty air
+	# 6. Ctrl paths with no perch hint: empty air does nothing, a real face boosts
 	for i in 30:
 		await physics_frame
 	p.global_position = Vector3(30, 0.1, 0)
 	p.velocity = Vector3.ZERO
-	for i in 5:
-		await physics_frame
-	look(cam, cam.global_position + Vector3(0, 40, 0))
-	check("no perch hint at open sky for the dash test", not z.find_perch(cam, p.get_rid()))
-	var wl_d = p.get_node("WebLeft")
-	var v0: Vector3 = p.velocity
-	check("dash starts with no perch", z.start_dash(Vector3(0, 0, -1), p, MASS) and z.last_arrival == "dash")
-	check("dash adds forward speed (%.1f m/s)" % p.velocity.length(), p.velocity.length() > 11.0 and p.velocity.z < -10.0)
-	check("dash impulse equals m dv (%.0f N s)" % z.impulse.length(), absf(z.impulse.length() - MASS * (p.velocity - v0).length()) < 1.0)
-	check("dash over open sky draws no web line", z.dash_line_t == 0.0 and not z.dash_has_hit)
-	check("dash starts no zip and no web", z.phase == z.Phase.IDLE and wl_d.phase == wl_d.Phase.IDLE)
 	for i in 10:
 		await physics_frame
-	check("dash never enters the ZIP state", p.state != p.State.ZIP)
-	check("dash work equals dK (%.0f J)" % z.work, absf(z.work - z.last_dk) < 1.0)
-	p.global_position = Vector3(30, 0.1, 0)
-	p.velocity = Vector3.ZERO
-	for i in 5:
+	look(cam, cam.global_position + Vector3(0, 40, 0))
+	check("no perch hint at open sky for the Ctrl test", not z.find_perch(cam, p.get_rid()))
+	var wl_c = p.get_node("WebLeft")
+	var v_before: Vector3 = p.velocity
+	var st_before: int = p.state
+	Input.action_press("zip")
+	for i in 6:
 		await physics_frame
-	z.start_dash(Vector3(1, 0, 0), p, MASS)
-	check("dash toward a wall draws the web line", z.dash_has_hit and z.dash_line_t > 0.0)
-	check("dash toward a wall still attaches nothing", wl_d.phase == wl_d.Phase.IDLE and z.phase == z.Phase.IDLE)
+	Input.action_release("zip")
+	check("Ctrl at empty air does nothing (v=%.2f)" % p.velocity.length(), p.velocity.length() < 0.5)
+	check("Ctrl at empty air keeps the state (%d -> %d)" % [st_before, p.state], p.state == st_before)
+	check("Ctrl at empty air starts no zip and no web", z.phase == z.Phase.IDLE and wl_c.phase == wl_c.Phase.IDLE)
+
+	# Real wall face, roof too far to be a perch: web pull, ZIP state, release, no web left attached
+	p.global_position = Vector3(80, 0.1, 20)
+	p.velocity = Vector3.ZERO
+	for i in 10:
+		await physics_frame
+	look(cam, Vector3(90, 10, 20))
+	check("tall wall gives no perch hint (roof out of range)", not z.find_perch(cam, p.get_rid()))
+	Input.action_press("zip")
+	var boost_zip := false
+	for i in 90:
+		await physics_frame
+		if p.state == p.State.ZIP:
+			boost_zip = true
+		if z.last_arrival == "boost":
+			break
+	Input.action_release("zip")
+	check("Ctrl at a real face fires a web boost", z.last_arrival == "boost")
+	check("boost runs in the ZIP state", boost_zip)
+	check("boost hands over forward speed (%.1f m/s)" % p.velocity.length(), p.velocity.length() > 6.0)
+	check("boost releases the web", z.phase == z.Phase.IDLE and wl_c.phase == wl_c.Phase.IDLE)
+	check("boost drops a falling strand", z.strand_t > 0.0)
+	check("boost never enters the JUMP state", p.state != p.State.JUMP)
 
 	# 8. Perch hints from below, and the body faces outward once watching
 	for i in 30:

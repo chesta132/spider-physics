@@ -82,10 +82,9 @@ func _physics_process(dt: float) -> void:
 		drag_loss = 0.0
 	wish = _camera_relative_wish()
 	sprint = Input.is_action_pressed("sprint")
-	if Input.is_action_just_pressed("zip") and not fly:
-		watching = false
-		if zip_node.phase == zip_node.Phase.IDLE:
-			_zip_start()
+	if Input.is_action_just_pressed("zip") and not fly and zip_node.phase == zip_node.Phase.IDLE:
+		if _zip_start():
+			watching = false  # a real zip started, so leave the perch
 	if watching:
 		_watching(dt)
 	elif zip_node.phase != zip_node.Phase.IDLE:
@@ -196,7 +195,9 @@ func _flat_forward() -> Vector3:
 	return f.normalized() if f.length_squared() > 0.001 else Vector3.FORWARD
 
 
-func _zip_start() -> void:
+## Ctrl: perch if a corner hint is in view, else a web pull at a real face, else nothing at all.
+## Returns true only when something actually started, so an empty-air press changes no state.
+func _zip_start() -> bool:
 	# One traversal at a time: drop any web so the rope cannot fight the pull.
 	web_l.release(_flat_forward(), velocity.length())
 	web_r.release(_flat_forward(), velocity.length())
@@ -204,8 +205,11 @@ func _zip_start() -> void:
 	landing = false
 	if zip_node.start_perch(cam_ref, get_rid(), global_position, velocity):
 		last_event = "Zip to perch"
-	elif zip_node.start_dash(_flat_forward(), self, MASS):
-		last_event = "Air dash"
+		return true
+	if zip_node.start_surface_boost(cam_ref, get_rid(), global_position, velocity):
+		last_event = "Web-zip boost"
+		return true
+	return false  # aimed at empty air: no lunge, no web, no state change
 
 
 func _zip_tick(dt: float) -> void:

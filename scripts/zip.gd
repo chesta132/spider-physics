@@ -2,9 +2,9 @@ extends Node3D
 ## Zip to point, two modes:
 ##  - Perch: a rooftop edge / outer corner is under the reticle, so Ctrl zips the body onto it and
 ##    the controller settles into Watching.
-##  - Boost: no perch in view, so Ctrl fires a quick forward web and yanks the body along it,
-##    detaching at once and leaving the strand to fall.
-## Only real geometry counts; empty sky never does.
+##  - Boost: no perch in view, but the camera ray does hit a real building face, so Ctrl fires a
+##    short web pull toward that face and releases, handing over forward momentum.
+## No perch and no surface means Ctrl does nothing at all: no lunge, no web into empty air.
 
 const G := 9.8
 enum Phase { IDLE, SHOOT, PULL }
@@ -19,17 +19,19 @@ const VAULT_UP := 7.5                   # m/s, Space near arrival: up
 const STRAND_TIME := 2.0                # s, released strand lifetime
 const STRAND_DRAG := 0.4                # 1/s
 
-# Perch search: top faces only, and only near a drop (outer edge / corner)
+# Perch search: tight forward cone, roof edges only, and the point must be visible
 const PERCH_MIN_DIST := 4.0
 const PERCH_MAX_DIST := 40.0
 const PERCH_EDGE_PROBE := 0.6           # m, how far out to look for a drop
 const PERCH_EDGE_DROP := 0.8            # m, a probe must fall this far to count as an edge
-const PERCH_HINT_HZ := 12.0             # hint refresh rate (rays are cheap but not free)
+const AIM_FAN := 0.03                   # rad, ray fan step around camera forward (3x3, about +/-1.7 deg)
+const LOS_TOL := 0.7                    # m, a hit this close to the perch point is the perch itself
+const LOS_STOP := 0.12                  # m, stop the visibility probe this far short of the point
 
-# Forward boost (no perch in view)
-const DASH_KICK := 12.0                 # m/s, speed added by an air dash along the camera direction
-const DASH_LINE_TIME := 0.2             # s, how long a dash shows its web line when a surface is hit
-const BOOST_LIFT := 0.18                # upward fraction of the boost direction
+# Surface boost: a short web pull toward a real face, then release
+const BOOST_TIME := 0.18                # s, longest pull
+const BOOST_SPEED := 24.0               # m/s, pull speed
+const BOOST_END := 3.0                  # m, release this far from the face
 
 var phase := Phase.IDLE
 var mode := ""                          # "perch" | "boost"
@@ -41,10 +43,7 @@ var has_perch := false
 var shoot_from := Vector3.ZERO
 var shoot_t := 0.0
 var tip := Vector3.ZERO
-var dash_line_t := 0.0                  # s, how long a dash shows its web line
-var dash_from := Vector3.ZERO
-var dash_hit := Vector3.ZERO
-var dash_has_hit := false
+var boost_t := 0.0
 var f_zip := Vector3.ZERO               # N, pull force this tick (for the FBD)
 var work := 0.0                         # J, work done by the pull
 var impulse := Vector3.ZERO             # N s, total impulse from the pull
@@ -63,7 +62,6 @@ var strand_vel := Vector3.ZERO
 var _line: MeshInstance3D
 var _strand: MeshInstance3D
 var _reticle: MeshInstance3D
-var _hint_t := 0.0
 var _body_rid: RID
 
 
@@ -98,7 +96,7 @@ func _make(mesh: Mesh) -> MeshInstance3D:
 	return mi
 
 
-## Search the view for a rooftop edge or outer corner. True when one is under the reticle.
+## Search a tight cone in front of the camera for a rooftop edge. Clears the hint when none.
 func find_perch(cam: Camera3D, body_rid: RID) -> bool:
 	_body_rid = body_rid
 	var space := get_world_3d().direct_space_state
@@ -106,10 +104,11 @@ func find_perch(cam: Camera3D, body_rid: RID) -> bool:
 	var b := cam.global_transform.basis
 	var fwd := -b.z
 	var best := Vector3.ZERO
+	var best_out := Vector3.FORWARD
 	var best_sc := -1e9
-	for ix in range(-2, 3):
-		for iy in range(-2, 3):
-			var dir: Vector3 = (fwd + b.x * (ix * 0.07) + b.y * (iy * 0.07)).normalized()
+	for ix in range(-1, 2):
+		for iy in range(-1, 2):
+			var dir: Vector3 = (fwd + b.x * (ix * AIM_FAN) + b.y * (iy * AIM_FAN)).normalized()
 			var q := PhysicsRayQueryParameters3D.create(origin, origin + dir * RANGE)
 			q.exclude = [body_rid]
 			var hit := space.intersect_ray(q)
@@ -126,18 +125,39 @@ func find_perch(cam: Camera3D, body_rid: RID) -> bool:
 			var d := origin.distance_to(p)
 			if d < PERCH_MIN_DIST or d > PERCH_MAX_DIST:
 				continue
+			if not _visible(origin, p, body_rid):
+				continue  # the perch is behind a wall from here: no hint
 			if not _is_edge(p, n, body_rid):
 				continue
 			var outward := _edge_outward(p, n, body_rid)
-			var sc := p.y * 0.35 - d * 0.6 - absf(ix) * 0.4 - absf(iy) * 0.4  # close, high, near the reticle centre
+			var sc := p.y * 0.35 - d * 0.6 - absf(ix) * 0.4 - absf(iy) * 0.4  # close, high, near the crosshair
 			if sc > best_sc:
 				best_sc = sc
 				best = p
-				perch_outward = outward
+				best_out = outward
 	has_perch = best_sc != -1e9
 	if has_perch:
 		perch = best
+		perch_outward = best_out
+	else:
+		perch = Vector3.ZERO  # no hint, no stale point
 	return has_perch
+
+
+## True when nothing blocks the camera's view of the perch point. The probe stops just short of
+## the point, so the perch's own surface is not counted as an obstruction (which it is at an edge).
+func _visible(origin: Vector3, p: Vector3, body_rid: RID) -> bool:
+	var dir := p - origin
+	var dist := dir.length()
+	if dist < 0.001:
+		return true
+	dir /= dist
+	var q := PhysicsRayQueryParameters3D.create(origin, p - dir * LOS_STOP)
+	q.exclude = [body_rid]
+	var hit := get_world_3d().direct_space_state.intersect_ray(q)
+	if hit.is_empty():
+		return true
+	return origin.distance_to(hit["position"]) > dist - LOS_TOL  # only a hit right at the point is its own surface
 
 
 ## Roof above a wall hit: drop a ray from above a point just inside the building, so its first hit is the roof top.
@@ -203,32 +223,38 @@ func start_perch(cam: Camera3D, body_rid: RID, body_pos: Vector3, body_vel: Vect
 	return true
 
 
-## No perch in view: a forward air dash, an impulse along the camera direction. No web is fired.
-## The web line is drawn only when a real surface lies along the dash. It is visual and never attaches.
-func start_dash(cam_fwd: Vector3, body: CharacterBody3D, mass: float) -> bool:
-	var dir := (cam_fwd + Vector3.UP * BOOST_LIFT).normalized()
-	var v0 := body.velocity
-	var v1 := v0 + dir * DASH_KICK
-	body.velocity = v1
-	mode = "dash"
-	last_arrival = "dash"
-	impulse = mass * (v1 - v0)  # Ch.6: J = dp
-	start_pos = body.global_position
-	start_speed = v0.length()
-	last_dk = 0.5 * mass * (v1.length_squared() - v0.length_squared())
-	last_du = 0.0
-	work = last_dk  # Ch.6: W = dK, the dash has no height change
-	last_displacement = Vector3.ZERO
-	f_zip = Vector3.ZERO
-	var from := body.global_position + Vector3(0, 1.4, 0)
-	var q := PhysicsRayQueryParameters3D.create(from, from + dir * RANGE)
-	q.exclude = [body.get_rid()]
+## No perch in view: fire a short web pull at whatever real face the camera ray hits.
+## False when the camera is aimed at empty air, in which case the caller does nothing.
+func start_surface_boost(cam: Camera3D, body_rid: RID, body_pos: Vector3, body_vel: Vector3) -> bool:
+	var origin := cam.global_position
+	var dir := -cam.global_transform.basis.z
+	var q := PhysicsRayQueryParameters3D.create(origin, origin + dir * RANGE)
+	q.exclude = [body_rid]
 	var hit := get_world_3d().direct_space_state.intersect_ray(q)
-	dash_has_hit = not hit.is_empty() and from.distance_to(hit["position"]) >= MIN_DIST
-	dash_line_t = DASH_LINE_TIME if dash_has_hit else 0.0
-	if dash_has_hit:
-		dash_from = from
-		dash_hit = hit["position"]
+	if hit.is_empty():
+		return false
+	var p: Vector3 = hit["position"]
+	if origin.distance_to(p) < MIN_DIST:
+		return false
+	# Flatten the pull to chest height: a forward yank, not a climb. Keeps the body out of a
+	# JUMP state after release and reads as a web zip forward.
+	var chest := body_pos + Vector3(0, 1.4, 0)
+	var flat := Vector3(p.x, body_pos.y, p.z)  # exactly level with the feet: any rise would read as a jump
+	if flat.distance_to(chest) < BOOST_END:
+		return false  # aimed almost straight up or down: nothing to boost forward into
+	mode = "boost"
+	target = flat
+	target_normal = hit["normal"]
+	boost_t = BOOST_TIME
+	shoot_from = body_pos + Vector3(0, 1.4, 0)
+	tip = shoot_from
+	shoot_t = 0.0
+	start_pos = body_pos
+	start_speed = body_vel.length()
+	work = 0.0
+	impulse = Vector3.ZERO
+	f_zip = Vector3.ZERO
+	phase = Phase.SHOOT
 	return true
 
 
@@ -246,10 +272,14 @@ func step(dt: float, body: CharacterBody3D, mass: float, vault: bool) -> String:
 		return "idle"
 	var d := target - body.global_position
 	var dist := d.length()
-	if dist <= ARRIVE_DIST:
+	if mode == "boost":
+		boost_t -= dt
+		if boost_t <= 0.0 or dist <= BOOST_END:
+			return _finish_boost(body, mass)
+	elif dist <= ARRIVE_DIST:
 		return _finish(body, mass, vault)
 	var dir := d / dist
-	var speed := minf(ZIP_SPEED, dist / maxf(dt, 0.0001))  # never overshoot the target in one step
+	var speed := minf(ZIP_SPEED if mode == "perch" else BOOST_SPEED, dist / maxf(dt, 0.0001))
 	var want := dir * speed
 	var dv := want - body.velocity
 	f_zip = mass * dv / maxf(dt, 0.0001)
@@ -260,6 +290,19 @@ func step(dt: float, body: CharacterBody3D, mass: float, vault: bool) -> String:
 	work = 0.5 * mass * (want.length_squared() - start_speed * start_speed) \
 		+ mass * G * (body.global_position.y - start_pos.y)
 	return "pull"
+
+
+## Short boost: release the web and keep the momentum it just gave.
+func _finish_boost(body: CharacterBody3D, mass: float) -> String:
+	last_displacement = body.global_position - start_pos
+	last_dk = 0.5 * mass * (body.velocity.length_squared() - start_speed * start_speed)
+	last_du = mass * G * last_displacement.y
+	work = last_dk + last_du
+	_detach(body.global_position)
+	f_zip = Vector3.ZERO
+	phase = Phase.IDLE
+	last_arrival = "boost"
+	return "boosted"
 
 
 func _finish(body: CharacterBody3D, mass: float, vault: bool) -> String:
@@ -294,6 +337,7 @@ func cancel() -> void:
 	phase = Phase.IDLE
 	f_zip = Vector3.ZERO
 	has_perch = false
+	perch = Vector3.ZERO
 
 
 func _strand_step(dt: float) -> void:
@@ -306,7 +350,7 @@ func _strand_step(dt: float) -> void:
 	strand_tip.y = maxf(strand_tip.y, 0.05)
 
 
-func _process(delta: float) -> void:
+func _process(_delta: float) -> void:
 	var hand := global_position + Vector3(0, 1.4, 0)
 	match phase:
 		Phase.SHOOT:
@@ -317,17 +361,14 @@ func _process(delta: float) -> void:
 			_mark(target, true)
 		_:
 			_line.visible = false
-			# Idle: refresh the perch hint a few times a second.
-			_hint_t -= delta
-			if _hint_t <= 0.0 and _body_rid.is_valid():
-				_hint_t = 1.0 / PERCH_HINT_HZ
+			# Refresh every frame, so the hint dies the instant the camera leaves the building.
+			if _body_rid.is_valid():
 				var cam := get_viewport().get_camera_3d()
 				if cam:
 					find_perch(cam, _body_rid)
+				else:
+					has_perch = false
 			_mark(perch, has_perch)
-	if dash_line_t > 0.0:
-		dash_line_t -= delta
-		_seg(_line, dash_from, dash_hit)
 	if strand_t > 0.0:
 		_seg(_strand, strand_anchor, strand_tip)
 	else:

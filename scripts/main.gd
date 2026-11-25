@@ -38,6 +38,8 @@ func _zip_course() -> void:
 	# Thin perch pillars: every top point is near an edge, so outer-corner hints register easily.
 	_box(Vector3(74, 5.0, 20), Vector3(2, 10, 2), tier.lightened(0.15))
 	_box(Vector3(78, 8.0, 27), Vector3(2, 16, 2), tier.lightened(0.2))
+	# Tall wide wall with no roof inside zip range: the no-perch boost target.
+	_box(Vector3(90, 30, 20), Vector3(6, 60, 12), tier.darkened(0.15))
 	# Rooftop slab with clean outer corners to perch on.
 	_box(Vector3(80, 12.0, 20), Vector3(7, 0.8, 7), tier)
 	# Overhanging archway: two pillars and a slab, zip up onto the perch.
