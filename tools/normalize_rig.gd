@@ -6,8 +6,23 @@ const SRC := "res://assets/player_lego/scene.gltf"
 const OUT := "res://assets/player_lego/player_rig.tscn"
 const HEIGHT := 1.8
 const D2R := PI / 180.0
-const LAND_THIGH := 38.0  # deg, superhero crouch: thigh and knee flex at full crouch
-const LAND_KNEE := 62.0
+## Superhero landing, matched to the reference figure: hips dropped to knee height, torso pitched
+## forward, head lifted, right leg thrown wide with a soft knee, left leg folded deep as the support
+## leg, right hand planted on the street, left arm thrown out horizontally. Left side of the model is
+## +X (it faces +Z), so the reference's "figure's right" is the .R chain here.
+const LAND_LEAN := 76.0      # deg, torso pitch forward: reference reads ~55-60 on a long-armed
+                             # figure; the short LEGO arm needs a steeper chest to reach the street
+const LAND_HEAD := -66.0     # deg, head counter-rotated to keep the mask looking forward
+const LAND_SUPPORT_THIGH := -70.0   # .L, thigh swung forward
+const LAND_SUPPORT_SPLAY := 26.0    # .L, knee pushed out to the side
+const LAND_SUPPORT_KNEE := 118.0    # .L, deep fold: this leg carries the crouch
+const LAND_WIDE_THIGH := 0.0        # .R, no fore/aft: the wide leg is a pure side diagonal
+const LAND_WIDE_SPLAY := -50.0      # .R, thigh thrown out wide: one straight diagonal to the foot
+const LAND_WIDE_KNEE := 0.0         # .R, locked straight (any knee flex here reads as a frog squat)
+const LAND_PLANT_ARM := -54.0       # .R upper arm, reaching down/forward to the street
+const LAND_PLANT_ELBOW := -16.0     # .R forearm, almost straight
+const LAND_OPEN_ARM := 78.0         # .L upper arm, thrown out to the side (Z abduction)
+const LAND_OPEN_ELBOW := -14.0      # .L forearm, slight bend
 const BLEND := 0.05
 const NAMES := ["Root", "Hips", "Torso", "Head", "Shoulder.L", "Arm.L", "Shoulder.R", "Arm.R", "Leg.L", "Leg.R"]
 ## Measured from the normalized mesh. Left side; right side mirrors X.
@@ -326,10 +341,9 @@ func _clip(c: Dictionary) -> Animation:
 		if c["kind"] == "gait" and float(c["bob"]) > 0.0:
 			dy = -float(c["bob"]) * _lowest_y(_leg_pose(c, p))
 		elif c["kind"] == "land":
-			# The folded legs lift the feet clear of the street, so the crouch has to drop by the
-			# measured amount or the character floats above its own shadow.
-			var cr := _land_crouch(fmod(p, 1.0))
-			dy = -_lowest_y([LAND_THIGH * cr, LAND_KNEE * cr, LAND_THIGH * cr, LAND_KNEE * cr])
+			# Calibrate against the WHOLE pose, not just the legs: the planted hand reaches as low as
+			# the feet, and whichever is lower must sit on the street or the figure floats.
+			dy = -_lowest_y_pose(_air_pose("land", fmod(p, 1.0), 0.0))
 		var pose := _pose(c, fmod(p, 1.0), dy)
 		for b in ROT_BONES:
 			a.rotation_track_insert_key(tracks[b], time, Quaternion.from_euler(pose[b]))
@@ -443,24 +457,26 @@ func _air_pose(kind: String, p: float, dy: float) -> Dictionary:
 		pose["Thigh.R"] = Vector3(18.0 * D2R, 0.0, 0.0)
 		pose["LowerLeg.L"] = Vector3(28.0 * D2R, 0.0, 0.0)
 		pose["LowerLeg.R"] = Vector3(28.0 * D2R, 0.0, 0.0)
-	else:  # land: low superhero crouch, held for as long as LAND lasts
+	else:  # land: asymmetric superhero landing, held for as long as LAND lasts
 		# Held, not one-shot: see the CLIPS note. The way back up is the crossfade into idle/walk
 		# when the controller leaves LAND.
 		var crouch := _land_crouch(q)
-		pose["Torso"] = Vector3(26.0 * D2R * crouch, 0.0, 0.0)
-		pose["Head"] = Vector3(-8.0 * D2R * crouch, 0.0, 0.0)
-		# Arms reach down and out toward the pavement (three-point landing read), not a guard pose:
-		# the upper arm stays near vertical, the elbow nearly straight, the wrist cocked back.
-		pose["UpperArm.L"] = Vector3(-16.0 * D2R * crouch, 0.0, 26.0 * D2R * crouch)
-		pose["UpperArm.R"] = Vector3(-16.0 * D2R * crouch, 0.0, -26.0 * D2R * crouch)
-		pose["Forearm.L"] = Vector3(-10.0 * D2R * crouch, 0.0, 0.0)
-		pose["Forearm.R"] = Vector3(-10.0 * D2R * crouch, 0.0, 0.0)
-		pose["Hand.L"] = Vector3(14.0 * D2R * crouch, 0.0, 0.0)
-		pose["Hand.R"] = Vector3(14.0 * D2R * crouch, 0.0, 0.0)
-		pose["Thigh.L"] = Vector3(LAND_THIGH * D2R * crouch, 0.0, 0.0)
-		pose["Thigh.R"] = Vector3(LAND_THIGH * D2R * crouch, 0.0, 0.0)
-		pose["LowerLeg.L"] = Vector3(LAND_KNEE * D2R * crouch, 0.0, 0.0)
-		pose["LowerLeg.R"] = Vector3(LAND_KNEE * D2R * crouch, 0.0, 0.0)
+		var k := crouch * D2R
+		pose["Torso"] = Vector3(LAND_LEAN * k, 0.0, 4.0 * k)  # pitched forward, rolled into the planted hand
+		pose["Head"] = Vector3(LAND_HEAD * k, 6.0 * k, 0.0)  # lifted, turned a little toward the open arm
+		# Support side (.L): thigh forward and out, knee folded deep, foot flat under the hip.
+		pose["Thigh.L"] = Vector3(LAND_SUPPORT_THIGH * k, 0.0, LAND_SUPPORT_SPLAY * k)
+		pose["LowerLeg.L"] = Vector3(LAND_SUPPORT_KNEE * k, 0.0, 0.0)
+		pose["Hand.L"] = Vector3(8.0 * k, 0.0, 0.0)
+		# Wide side (.R): thigh thrown out to the side, knee soft, shin angled down to the foot.
+		pose["Thigh.R"] = Vector3(LAND_WIDE_THIGH * k, 0.0, LAND_WIDE_SPLAY * k)
+		pose["LowerLeg.R"] = Vector3(LAND_WIDE_KNEE * k, 0.0, 0.0)
+		pose["Hand.R"] = Vector3(30.0 * k, 0.0, 0.0)  # wrist cocked back: palm down on the street
+		# Arms are deliberately asymmetric: .R braces on the ground, .L is thrown out horizontally.
+		pose["UpperArm.R"] = Vector3(LAND_PLANT_ARM * k, 0.0, -10.0 * k)
+		pose["Forearm.R"] = Vector3(LAND_PLANT_ELBOW * k, 0.0, 0.0)
+		pose["UpperArm.L"] = Vector3(-10.0 * k, 0.0, LAND_OPEN_ARM * k)
+		pose["Forearm.L"] = Vector3(LAND_OPEN_ELBOW * k, 0.0, 0.0)
 	return pose
 
 
@@ -475,6 +491,18 @@ func _lowest_y(legs: Array) -> float:
 		lo = minf(lo, p.y)
 	_sk.reset_bone_poses()
 	return lo
+
+## Lowest skinned y with every rotation in `pose` applied, hips at their rest height.
+func _lowest_y_pose(pose: Dictionary) -> float:
+	_sk.reset_bone_poses()
+	for b in ROT_BONES:
+		_sk.set_bone_pose_rotation(_sk.find_bone(b), Quaternion.from_euler(pose[b]))
+	var lo := 1e9
+	for p in _skinned(_sk, _mi, true):
+		lo = minf(lo, p.y)
+	_sk.reset_bone_poses()
+	return lo
+
 
 func _report(rig: Node3D) -> void:
 	for i in _sk.get_bone_count():

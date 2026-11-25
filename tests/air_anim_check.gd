@@ -7,6 +7,38 @@ func check(label: String, ok: bool) -> void:
 	if not ok:
 		fails += 1
 
+func sk_pose(p: Node, bone: String) -> Vector3:
+	var sk: Skeleton3D = p.get_node("Visual/Model/Rig/Skeleton")
+	return sk.get_bone_pose_rotation(sk.find_bone(bone)).get_euler()
+
+
+## Lowest world y of the drawn mesh at the current pose: the ground-contact check.
+func lowest_mesh_y(p: Node) -> float:
+	var mi: MeshInstance3D = p.get_node("Visual/Model/Rig/Skeleton/Body")
+	var sk: Skeleton3D = p.get_node("Visual/Model/Rig/Skeleton")
+	var skin := mi.skin
+	var arr := (mi.mesh as ArrayMesh).surface_get_arrays(0)
+	var verts: PackedVector3Array = arr[Mesh.ARRAY_VERTEX]
+	var bones: PackedInt32Array = arr[Mesh.ARRAY_BONES]
+	var wts: PackedFloat32Array = arr[Mesh.ARRAY_WEIGHTS]
+	var stride: int = bones.size() / verts.size()
+	var mats: Array[Transform3D] = []
+	for i in skin.get_bind_count():
+		mats.append(sk.get_bone_global_pose(sk.find_bone(skin.get_bind_name(i))) * skin.get_bind_pose(i))
+	var lo := 1e9
+	for v in verts.size():
+		var q := Vector3.ZERO
+		var ws := 0.0
+		for k in stride:
+			var w: float = wts[v * stride + k]
+			if w > 0.0:
+				q += (mats[bones[v * stride + k]] * verts[v]) * w
+				ws += w
+		if ws > 0.0:
+			lo = minf(lo, (p.get_node("Visual/Model/Rig/Skeleton").global_transform * (q / ws)).y)
+	return lo
+
+
 func _initialize() -> void:
 	var main: Node = load("res://scenes/main.tscn").instantiate()
 	main.set("map_scene", null)
@@ -40,6 +72,26 @@ func _initialize() -> void:
 	check("descent enters FALL clip", saw_fall)
 	check("fall speed_scale responds (%.2f)" % fall_scale, fall_scale >= 0.8 and fall_scale <= 1.4)
 	check("heavy touchdown enters LAND clip", saw_land)
+	# Let the 0.10 s impact crossfade finish before measuring the held pose.
+	for i in 25:
+		await physics_frame
+	# The landing must read as the reference silhouette, not a symmetric squat.
+	var thL := rad_to_deg(sk_pose(p, "Thigh.L").x)
+	var thR := rad_to_deg(sk_pose(p, "Thigh.R").x)
+	var knL := rad_to_deg(sk_pose(p, "LowerLeg.L").x)
+	var knR := rad_to_deg(sk_pose(p, "LowerLeg.R").x)
+	var torso := rad_to_deg(sk_pose(p, "Torso").x)
+	var open_arm := rad_to_deg(sk_pose(p, "UpperArm.L").z)
+	var plant_arm := rad_to_deg(sk_pose(p, "UpperArm.R").x)
+	check("torso pitched forward (%.0f deg)" % torso, torso > 60.0)
+	check("support leg folded (knee %.0f deg), wide leg straight (knee %.0f deg)" % [knL, knR], knL > 80.0 and knR < 25.0)
+	check("legs asymmetric (thigh %.0f vs %.0f deg)" % [thL, thR], absf(thL - thR) > 30.0)
+	check("arms asymmetric: open %.0f deg out, planted %.0f deg down" % [open_arm, plant_arm], open_arm > 55.0 and plant_arm < -35.0)
+	var hips_y: float = p.get_node("Visual/Model/Rig/Skeleton").get_bone_global_pose(
+		p.get_node("Visual/Model/Rig/Skeleton").find_bone("Hips")).origin.y
+	check("hips dropped toward the street (%.3f m, rest 0.648)" % hips_y, hips_y < 0.56)
+	var low := lowest_mesh_y(p)
+	check("landing mesh sits on the street (lowest vertex %+.3f m)" % low, absf(low) < 0.02)
 	var crack := root.find_child("LandingCrack", true, false)
 	check("landing crack spawned on surface", crack != null)
 	if crack:
