@@ -40,7 +40,6 @@ const TURN_RATE := 12.0      # 1/s, visual turn smoothing
 const SWING_VY := 1.5        # m/s, |velocity.y| above this splits the swing into up/down states
 const SWING_JUMP_UP := 6.0   # m/s, upward kick of a jump taken out of a swing
 const SWING_JUMP_FWD := 3.0  # m/s, forward kick of a swing jump
-const SWING_LAUNCH_TIME := 0.8  # s, how long a swing launch keeps the SWING JUMP state
 const WALL_JUMP_TIME := 0.5   # s, how long a wall jump keeps the WALL JUMP state
 const WALL_EDGE_TIME := 0.3   # s, edge transition window (climb over / step down)
 const WALL_CLIMB_TIME := 0.3  # s, smooth climb from the wall face onto the roof
@@ -82,7 +81,7 @@ var launch_super := false    # true while rising from a super jump
 var landing := false         # true from a heavy touchdown until the player gives input
 var watching := false        # perched on a rooftop edge, holding still until input
 var holding := false         # jump held on the ground, before the charge delay elapses
-var swing_launch_t := 0.0    # s, SWING JUMP window left after leaving an up-swing
+var swing_launch := false     # true from a swing launch until touchdown: SWING JUMP state
 var wall_jump_t := 0.0       # s, WALL JUMP window after leaving a wall
 var wall_cd := 0.0           # s, re-attach grace after a wall jump
 var wall_cd_normal := Vector3.ZERO  # normal of the face that was jumped off
@@ -128,7 +127,7 @@ func _physics_process(dt: float) -> void:
 		charging = false
 		holding = false
 		launch_super = false
-		swing_launch_t = 0.0
+		swing_launch = false
 		landing = false
 		drag_loss = 0.0
 	wish = _camera_relative_wish()
@@ -199,7 +198,6 @@ func _walk(dt: float) -> void:
 	# Swing jump: Space while a web holds you launches off the arc, with its own state.
 	if Input.is_action_just_pressed("jump") and not grounded and _web_on():
 		_swing_jump()
-	swing_launch_t = maxf(swing_launch_t - dt, 0.0)
 
 	if charging:
 		want = Vector3.ZERO  # crouch-charge: brake horizontally, WASD only sets the launch direction
@@ -267,7 +265,7 @@ func _launch_web(w, fwd: Vector3) -> void:
 	if kick != Vector3.ZERO:
 		velocity += kick
 		if velocity.y > 0.0:
-			swing_launch_t = SWING_LAUNCH_TIME  # released on the up-swing: a swing launch
+			swing_launch = true  # released on the up-swing: a swing launch
 
 
 func _web_step(dt: float) -> Vector3:
@@ -488,7 +486,7 @@ func _swing_jump() -> void:
 	web_r.release(fwd, velocity.length())
 	var kick := Vector3.UP * SWING_JUMP_UP + fwd * SWING_JUMP_FWD
 	velocity += kick
-	swing_launch_t = SWING_LAUNCH_TIME
+	swing_launch = true
 	last_impulse = MASS * kick
 	last_event = "Swing jump"
 	charging = false
@@ -519,7 +517,7 @@ func _touchdown(impact: float, drop: float) -> void:
 	last_impulse = Vector3(0, MASS * impact, 0)  # Ch.6: J = m dv, the ground removes this momentum
 	peak_fn = MASS * G + impact_force
 	launch_super = false
-	swing_launch_t = 0.0
+	swing_launch = false
 	landing = drop >= LAND_DROP
 	if landing:
 		_spawn_landing_crack()
@@ -548,7 +546,7 @@ func _refine_state(s: State) -> State:
 		if state == State.SWING_UP or state == State.SWING_DOWN:
 			return state
 		return State.SWING_UP
-	if not grounded and swing_launch_t > 0.0 and velocity.y > 0.0:
+	if not grounded and swing_launch and not diving:  # a dive keeps its own state
 		return State.SWING_JUMP
 	if grounded and landing:
 		return State.LAND
