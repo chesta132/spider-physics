@@ -4,6 +4,7 @@
 [ext_resource type="Script" path="res://scripts/physics_hud.gd" id="2_hud"]
 [ext_resource type="Script" path="res://scripts/orbit_camera.gd" id="3_cam"]
 [ext_resource type="Script" path="res://scripts/web.gd" id="4_web"]
+[ext_resource type="Script" path="res://scripts/zip.gd" id="5_zip"]
 
 [sub_resource type="CapsuleShape3D" id="cap_shape"]
 radius = 0.4
@@ -61,6 +62,9 @@ side = -1.0
 [node name="WebRight" type="Node3D" parent="."]
 script = ExtResource("4_web")
 side = 1.0
+
+[node name="Zip" type="Node3D" parent="."]
+script = ExtResource("5_zip")
 
 [node name="StateLabel" type="Label3D" parent="."]
 position = Vector3(0, 2.3, 0)

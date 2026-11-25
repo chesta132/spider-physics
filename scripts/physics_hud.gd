@@ -2,8 +2,8 @@ extends Node3D
 ## F3 physics overlay (Giancoli Ch. 1-8). Hidden at startup. Developer block only in debug builds.
 
 const N_TO_M := 0.004  # display scale: arrow length in metres per newton
-const VEC_NAMES := ["F_g", "F_N", "F_app", "F_d", "T"]
-const VEC_COLORS := [Color.RED, Color.GREEN, Color.DEEP_SKY_BLUE, Color.YELLOW, Color.MAGENTA]
+const VEC_NAMES := ["F_g", "F_N", "F_app", "F_d", "T", "F_zip"]
+const VEC_COLORS := [Color.RED, Color.GREEN, Color.DEEP_SKY_BLUE, Color.YELLOW, Color.MAGENTA, Color.CYAN]
 const CTRL := preload("res://scripts/player_controller.gd")
 
 var DEV := OS.is_debug_build()
@@ -67,7 +67,7 @@ func _process(_delta: float) -> void:
 	if not _on:
 		return
 	var origin := _p.global_position + Vector3(0, 1.0, 0)
-	var vecs := [_p.f_g, _p.f_n, _p.f_app, _p.f_d, _web().tension_vec()]
+	var vecs := [_p.f_g, _p.f_n, _p.f_app, _p.f_d, _web().tension_vec(), _p.f_zip]
 	_lines.clear_surfaces()
 	_lines.surface_begin(Mesh.PRIMITIVE_LINES)
 	for i in VEC_NAMES.size():
@@ -94,6 +94,11 @@ func _process(_delta: float) -> void:
 	lines.append("Energy K = %.0f J   U = %.0f J   E = K+U = %.0f J   lost to drag = %.0f J" % [ke, ug, ke + ug, _p.drag_loss])
 	lines.append("Forces: F_g %.0f  F_N %.0f  F_app %.0f  F_d %.0f  net %.0f N" % [_p.f_g.length(), _p.f_n.length(), _p.f_app.length(), _p.f_d.length(), _p.net.length()])
 	lines.append("Last event: %s   J = %.0f N s   peak F_N = %.0f N" % [_p.last_event, _p.last_impulse.length(), _p.peak_fn])
+	if _p.zip_node.phase != _p.zip_node.Phase.IDLE or _p.zip_node.last_arrival != "":
+		var z = _p.zip_node
+		var dr: Vector3 = z.last_displacement
+		lines.append("ZIP  F_zip = %.0f N   W = F.dr = %.0f J   |dr| = %.2f m" % [z.f_zip.length(), z.work, dr.length()])
+		lines.append("Energy dK = %.0f J   dU_g = %.0f J   Impulse |J| = %.0f N s" % [z.last_dk, z.last_du, z.impulse.length()])
 	var w = _web()
 	if w.phase == w.Phase.ROPE:
 		lines.append("Pendulum [%s web]  r = %.2f m   T = %.0f N" % ["left" if w.side < 0.0 else "right", w.last_radius, w.last_tension])

@@ -5,13 +5,13 @@ extends CharacterBody3D
 ## move_and_slide resolves contacts. Godot's solver owns the touchdown; this script only reads it.
 ## Child "Visual" is cosmetic only; its "Body" mesh is recolored per state.
 
-enum State { IDLE, WALK, RUN, JUMP, FALL, FLY, CHARGE, SUPER, DIVE, FAST_DIVE, LAND }
-const STATE_NAMES := ["IDLE", "WALK", "RUN", "JUMP", "FALL", "DEV-FLY", "CHARGE", "SUPER JUMP", "DIVE", "FAST DIVE", "LAND"]
+enum State { IDLE, WALK, RUN, JUMP, FALL, FLY, CHARGE, SUPER, DIVE, FAST_DIVE, LAND, ZIP }
+const STATE_NAMES := ["IDLE", "WALK", "RUN", "JUMP", "FALL", "DEV-FLY", "CHARGE", "SUPER JUMP", "DIVE", "FAST DIVE", "LAND", "ZIP"]
 const STATE_COLORS := [
 	Color(0.6, 0.6, 0.6), Color(0.2, 0.8, 0.3), Color(1.0, 0.55, 0.0),
 	Color(0.2, 0.8, 1.0), Color(0.9, 0.2, 0.8), Color(1.0, 1.0, 1.0),
 	Color(1.0, 0.9, 0.1), Color(0.6, 0.1, 1.0), Color(0.1, 0.3, 1.0),
-	Color(1.0, 0.1, 0.1), Color(0.5, 0.3, 0.1),
+	Color(1.0, 0.1, 0.1), Color(0.5, 0.3, 0.1), Color(0.0, 0.95, 0.85),
 ]
 
 const MASS := 70.0           # kg
@@ -45,6 +45,7 @@ var f_g := Vector3.ZERO
 var f_n := Vector3.ZERO
 var f_app := Vector3.ZERO
 var f_d := Vector3.ZERO
+var f_zip := Vector3.ZERO       # N, zip pull force (F3 FBD)
 var net := Vector3.ZERO
 var accel := Vector3.ZERO
 var last_impulse := Vector3.ZERO
@@ -65,6 +66,7 @@ var _shown := -1
 @onready var visual: Node3D = $Visual
 @onready var web_l = $WebLeft
 @onready var web_r = $WebRight
+@onready var zip_node = $Zip
 @onready var cam_ref: Camera3D = $Pivot/Pitch/Arm/Camera
 @onready var state_label: Label3D = $StateLabel
 
@@ -79,7 +81,11 @@ func _physics_process(dt: float) -> void:
 		drag_loss = 0.0
 	wish = _camera_relative_wish()
 	sprint = Input.is_action_pressed("sprint")
-	if fly:
+	if Input.is_action_just_pressed("zip") and not fly and zip_node.phase == zip_node.Phase.IDLE:
+		_zip_start()
+	if zip_node.phase != zip_node.Phase.IDLE:
+		_zip_tick(dt)
+	elif fly:
 		_fly(dt)
 	else:
 		_walk(dt)
@@ -185,6 +191,37 @@ func _flat_forward() -> Vector3:
 	return f.normalized() if f.length_squared() > 0.001 else Vector3.FORWARD
 
 
+func _zip_start() -> void:
+	# One traversal at a time: drop any web so the rope cannot fight the pull.
+	web_l.release(_flat_forward(), velocity.length())
+	web_r.release(_flat_forward(), velocity.length())
+	charging = false
+	if zip_node.start(cam_ref, get_rid(), global_position, velocity):
+		last_event = "Zip fire"
+
+
+func _zip_tick(dt: float) -> void:
+	var r: String = zip_node.step(dt, self, MASS)
+	f_g = Vector3(0, -MASS * G, 0)
+	f_d = drag(velocity)
+	f_n = Vector3.ZERO
+	f_zip = zip_node.f_zip
+	net = f_g + f_d + f_zip
+	accel = net / MASS
+	if r == "arrived":
+		velocity = zip_node.arrive(velocity, _flat_forward(), Input.is_action_pressed("jump"), MASS)
+		last_impulse = MASS * velocity
+		last_event = "Zip " + zip_node.last_arrival
+		f_zip = Vector3.ZERO
+		net = f_g + f_d
+		accel = net / MASS
+		grounded = false
+	move_and_slide()
+	grounded = is_on_floor()
+	if not grounded:
+		landing = false
+
+
 func _launch() -> void:
 	charging = false
 	landing = false
@@ -213,6 +250,8 @@ func _touchdown(impact: float, drop: float) -> void:
 
 
 func _refine_state(s: State) -> State:
+	if zip_node.phase != zip_node.Phase.IDLE:
+		return State.ZIP
 	if grounded and landing:
 		return State.LAND
 	if charging:

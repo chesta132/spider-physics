@@ -20,6 +20,25 @@ func _ready() -> void:
 	for b in BLOCKS:
 		var h: float = b[3]
 		_box(Vector3(b[0], h / 2.0, b[1]), Vector3(b[2], h, b[4]), Color.from_hsv(0.6, 0.15, 0.4 + h / 50.0))
+	_zip_course()
+
+
+## Step 4 test course: tiered rooftops, a gapped tower pair, a tall wall, and an overhanging arch.
+func _zip_course() -> void:
+	var tier := Color(0.45, 0.62, 0.75)
+	# Multi-tier rooftop: low, medium, tall ledges to zip onto and vault over.
+	_box(Vector3(40, 2.0, 0), Vector3(10, 4, 10), tier)
+	_box(Vector3(40, 4.5, 0), Vector3(7, 9, 7), tier.lightened(0.1))
+	_box(Vector3(40, 7.0, 0), Vector3(4, 14, 4), tier.lightened(0.2))
+	# Separated towers with a gap: mid-air diagonal zips between them.
+	_box(Vector3(52, 6.0, 20), Vector3(5, 12, 5), tier)
+	_box(Vector3(66, 8.0, 20), Vector3(5, 16, 5), tier.lightened(0.1))
+	# Tall thin wall face: zip onto a vertical surface.
+	_box(Vector3(40, 10.0, -22), Vector3(1.2, 20, 14), tier.darkened(0.1))
+	# Overhanging archway: two pillars and a slab, zip up onto the perch.
+	_box(Vector3(52, 5.0, -22), Vector3(1.5, 10, 1.5), tier.darkened(0.2))
+	_box(Vector3(60, 5.0, -22), Vector3(1.5, 10, 1.5), tier.darkened(0.2))
+	_box(Vector3(56, 10.6, -22), Vector3(12, 1.2, 6), tier.lightened(0.05))
 
 
 func _box(pos: Vector3, size: Vector3, color: Color) -> void:
