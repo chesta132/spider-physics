@@ -19,8 +19,11 @@ const LAND_SUPPORT_KNEE := 118.0    # .L, deep fold: this leg carries the crouch
 const LAND_WIDE_THIGH := 0.0        # .R, no fore/aft: the wide leg is a pure side diagonal
 const LAND_WIDE_SPLAY := -50.0      # .R, thigh thrown out wide: one straight diagonal to the foot
 const LAND_WIDE_KNEE := 0.0         # .R, locked straight (any knee flex here reads as a frog squat)
-const LAND_PLANT_ARM := -54.0       # .R upper arm, reaching down/forward to the street
-const LAND_PLANT_ELBOW := -16.0     # .R forearm, almost straight
+## .R upper arm: X swings it down and forward, Z throws it out from the body so the hand lands on
+## the street AHEAD of and outside the planted foot instead of hanging at the hip.
+const LAND_PLANT_ARM := -78.0
+const LAND_PLANT_SPLAY := -26.0
+const LAND_PLANT_ELBOW := -10.0     # .R forearm, almost straight
 const LAND_OPEN_ARM := 78.0         # .L upper arm, thrown out to the side (Z abduction)
 const LAND_OPEN_ELBOW := -14.0      # .L forearm, slight bend
 const BLEND := 0.05
@@ -462,8 +465,12 @@ func _air_pose(kind: String, p: float, dy: float) -> Dictionary:
 		# when the controller leaves LAND.
 		var crouch := _land_crouch(q)
 		var k := crouch * D2R
+		# The Head bone rides on the torso's neck joint, so a head rotation pivots the head THROUGH
+		# the torso and opens a gap at the neck. Counter the lean so the head stays seated and the
+		# mask looks forward by itself: 56 deg is the lift that keeps the face level at 76 deg lean.
+		var head_pitch: float = (-LAND_LEAN + 20.0)
 		pose["Torso"] = Vector3(LAND_LEAN * k, 0.0, 4.0 * k)  # pitched forward, rolled into the planted hand
-		pose["Head"] = Vector3(LAND_HEAD * k, 6.0 * k, 0.0)  # lifted, turned a little toward the open arm
+		pose["Head"] = Vector3(head_pitch * k, 6.0 * k, 0.0)  # counter-rotated: seated, mask forward
 		# Support side (.L): thigh forward and out, knee folded deep, foot flat under the hip.
 		pose["Thigh.L"] = Vector3(LAND_SUPPORT_THIGH * k, 0.0, LAND_SUPPORT_SPLAY * k)
 		pose["LowerLeg.L"] = Vector3(LAND_SUPPORT_KNEE * k, 0.0, 0.0)
@@ -473,7 +480,7 @@ func _air_pose(kind: String, p: float, dy: float) -> Dictionary:
 		pose["LowerLeg.R"] = Vector3(LAND_WIDE_KNEE * k, 0.0, 0.0)
 		pose["Hand.R"] = Vector3(30.0 * k, 0.0, 0.0)  # wrist cocked back: palm down on the street
 		# Arms are deliberately asymmetric: .R braces on the ground, .L is thrown out horizontally.
-		pose["UpperArm.R"] = Vector3(LAND_PLANT_ARM * k, 0.0, -10.0 * k)
+		pose["UpperArm.R"] = Vector3(LAND_PLANT_ARM * k, 0.0, LAND_PLANT_SPLAY * k)
 		pose["Forearm.R"] = Vector3(LAND_PLANT_ELBOW * k, 0.0, 0.0)
 		pose["UpperArm.L"] = Vector3(-10.0 * k, 0.0, LAND_OPEN_ARM * k)
 		pose["Forearm.L"] = Vector3(LAND_OPEN_ELBOW * k, 0.0, 0.0)

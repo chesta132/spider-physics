@@ -92,6 +92,18 @@ func _initialize() -> void:
 	check("hips dropped toward the street (%.3f m, rest 0.648)" % hips_y, hips_y < 0.56)
 	var low := lowest_mesh_y(p)
 	check("landing mesh sits on the street (lowest vertex %+.3f m)" % low, absf(low) < 0.02)
+	# Head must stay seated on the neck joint (no float) and still look forward.
+	var skn: Skeleton3D = p.get_node("Visual/Model/Rig/Skeleton")
+	var neck := (skn.get_bone_global_pose(skn.find_bone("Head")).origin - skn.get_bone_global_pose(skn.find_bone("Torso")).origin).length()
+	var rest_neck := (skn.get_bone_global_rest(skn.find_bone("Head")).origin - skn.get_bone_global_rest(skn.find_bone("Torso")).origin).length()
+	check("head seated on the neck (gap %.3f vs rest %.3f)" % [neck, rest_neck], absf(neck - rest_neck) < 0.005)
+	var face := rad_to_deg(Vector3.UP.angle_to(skn.get_bone_global_pose(skn.find_bone("Head")).basis.y))
+	check("head still looks forward (%.0f deg from upright)" % face, face < 30.0)
+	# Planted hand must reach AHEAD of the hips, not hang at the side.
+	var hips := skn.get_bone_global_pose(skn.find_bone("Hips")).origin
+	var hand := skn.get_bone_global_pose(skn.find_bone("Hand.R")).origin
+	check("planted hand reaches forward (+%.3f m ahead of hips)" % (hand.z - hips.z), hand.z - hips.z > 0.25)
+	check("planted hand is outside the body (|x| %.3f)" % absf(hand.x), absf(hand.x) > 0.45)
 	var crack := root.find_child("LandingCrack", true, false)
 	check("landing crack spawned on surface", crack != null)
 	if crack:
