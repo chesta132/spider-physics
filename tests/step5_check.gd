@@ -163,5 +163,125 @@ func _initialize() -> void:
 	check("ordinary F_N is zero on a wall", p.f_n == Vector3.ZERO)
 	hud._set_on(false)
 
+	# 8. A/D read as screen left/right on the face (camera aimed at the wall, yaw 90)
+	p.global_position = Vector3(30, 0.1, -22)
+	p.velocity = Vector3.ZERO
+	for i in 10:
+		await physics_frame
+	cam.rotation.y = deg_to_rad(-90.0)  # camera forward is -Z, so -90 looks +X at the face
+	cam.rotation.x = -0.2
+	p.global_position = Vector3(38.5, 5.0, -22)
+	p.velocity = Vector3.ZERO
+	for i in 3:
+		await physics_frame
+	Input.action_press("move_forward")  # W is into the face when the camera looks at it
+	for i in 25:
+		await physics_frame
+	Input.action_release("move_forward")
+	check("attaches while the camera looks at the face", wall.active())
+	var z0: float = p.global_position.z
+	Input.action_press("move_right")
+	for i in 20:
+		await physics_frame
+	Input.action_release("move_right")
+	check("D strafes screen-right on the face (dz %.2f)" % (p.global_position.z - z0), p.global_position.z > z0 + 0.3)
+	check("strafe axis matches the camera right (dot %.2f)" % p.wall_node.right.dot(cam.global_transform.basis.x),
+		p.wall_node.right.dot(cam.global_transform.basis.x) > 0.9)
+
+	# 9. Grip: with no input the body stops dead on the face instead of sliding
+	for i in 10:
+		await physics_frame  # let the grip bring the strafe to a stop
+	var z_hold: float = p.global_position.z
+	for i in 40:
+		await physics_frame
+	check("no input holds still on the wall (drift %.3f m)" % absf(p.global_position.z - z_hold), absf(p.global_position.z - z_hold) < 0.02)
+	check("still attached after holding (no float-off)", wall.active())
+
+	# 10. Sprint + W is an explicit WALL RUN, faster than the crawl
+	p.global_position = Vector3(30, 0.1, -22)
+	p.velocity = Vector3.ZERO
+	for i in 10:
+		await physics_frame
+	cam.rotation.y = 0.0
+	p.global_position = Vector3(38.5, 5.0, -22)
+	p.velocity = Vector3.ZERO
+	for i in 3:
+		await physics_frame
+	Input.action_press("move_right")
+	for i in 25:
+		await physics_frame
+	Input.action_release("move_right")
+	var y_run0: float = p.global_position.y
+	Input.action_press("sprint")
+	Input.action_press("move_forward")
+	var saw_sprint_run := false
+	for i in 30:
+		await physics_frame
+		if p.state == p.State.WALL_RUN:
+			saw_sprint_run = true
+	Input.action_release("move_forward")
+	Input.action_release("sprint")
+	var run_climb: float = p.global_position.y - y_run0
+	check("Shift + W enters WALL RUN", saw_sprint_run)
+	check("wall run climbs faster than the crawl (%.2f m in 0.5 s)" % run_climb, run_climb > 2.0)
+
+	# 11. Outer corner: strafing past the edge wraps onto the perpendicular face
+	p.global_position = Vector3(30, 0.1, -22)
+	p.velocity = Vector3.ZERO
+	for i in 10:
+		await physics_frame
+	cam.rotation.y = deg_to_rad(-90.0)
+	p.global_position = Vector3(38.5, 5.0, -16)
+	p.velocity = Vector3.ZERO
+	for i in 3:
+		await physics_frame
+	Input.action_press("move_forward")
+	for i in 25:
+		await physics_frame
+	Input.action_release("move_forward")
+	check("attached before the corner", wall.active())
+	Input.action_press("move_right")
+	var wrapped := false
+	for i in 120:
+		await physics_frame
+		if wall.normal.z > 0.9:
+			wrapped = true
+			break
+	Input.action_release("move_right")
+	check("corner wrap adopts the perpendicular face (normal %s)" % wall.normal, wrapped)
+	check("corner wrap keeps the body on a wall", wall.active())
+	check("corner wrap stays in a wall state (state %s)" % p.STATE_NAMES[p.state], p.state == p.State.WALL_CRAWL or p.state == p.State.WALL_RUN)
+
+	# 12. Climb-over is interpolated, not a teleport
+	p.global_position = Vector3(30, 0.1, -22)
+	p.velocity = Vector3.ZERO
+	for i in 10:
+		await physics_frame
+	cam.rotation.y = 0.0
+	p.global_position = Vector3(38.5, 5.0, -22)
+	p.velocity = Vector3.ZERO
+	for i in 3:
+		await physics_frame
+	Input.action_press("move_right")
+	for i in 25:
+		await physics_frame
+	Input.action_release("move_right")
+	Input.action_press("move_forward")
+	var climb_frames := 0
+	var max_step := 0.0
+	var prev: Vector3 = p.global_position
+	for i in 400:
+		await physics_frame
+		if p.climbing:
+			climb_frames += 1
+			max_step = maxf(max_step, p.global_position.distance_to(prev))
+		prev = p.global_position
+		if not p.climbing and p.grounded and not wall.active():
+			break
+	Input.action_release("move_forward")
+	check("climb-over spans several frames (%d)" % climb_frames, climb_frames >= 8)
+	check("climb-over never teleports (max step %.2f m)" % max_step, max_step < 0.6)
+	check("climb-over ends grounded on the roof (y=%.2f)" % p.global_position.y, p.grounded and p.global_position.y > 19.5)
+
 	print("RESULT: ", "ALL PASS" if fails == 0 else "%d FAIL" % fails)
 	quit(1 if fails else 0)

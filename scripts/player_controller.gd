@@ -43,6 +43,8 @@ const SWING_JUMP_FWD := 3.0  # m/s, forward kick of a swing jump
 const SWING_LAUNCH_TIME := 0.8  # s, how long a swing launch keeps the SWING JUMP state
 const WALL_JUMP_TIME := 0.5   # s, how long a wall jump keeps the WALL JUMP state
 const WALL_EDGE_TIME := 0.3   # s, edge transition window (climb over / step down)
+const WALL_CLIMB_TIME := 0.3  # s, smooth climb from the wall face onto the roof
+const WALL_WRAP_TIME := 0.15  # s, smooth slide around an outer corner onto the next face
 const WALL_ATTACH_SPEED := 3.0  # m/s, grounded attach needs at least this much horizontal speed
 const FLY_SPEED := 14.0      # m/s, dev noclip only
 
@@ -74,6 +76,14 @@ var swing_launch_t := 0.0    # s, SWING JUMP window left after leaving an up-swi
 var wall_jump_t := 0.0       # s, WALL JUMP window after leaving a wall
 var edge_up_t := 0.0         # s, WALL EDGE UP window after climbing onto a roof
 var edge_down_t := 0.0       # s, WALL EDGE DOWN window after stepping off a wall
+var wrapping := false        # mid corner wrap: a timed interpolation, no physics
+var wrap_from := Vector3.ZERO
+var wrap_to := Vector3.ZERO
+var wrap_t := 0.0
+var climbing := false        # mid climb-over: a timed interpolation, no physics
+var climb_from := Vector3.ZERO
+var climb_to := Vector3.ZERO
+var climb_t := 0.0
 var diving := false
 var fast := false
 var air_peak := 0.0          # m, highest point since leaving the ground
@@ -110,7 +120,9 @@ func _physics_process(dt: float) -> void:
 	if Input.is_action_just_pressed("zip") and not fly and zip_node.phase == zip_node.Phase.IDLE:
 		if _zip_start():
 			watching = false  # a real zip started, so leave the perch
-	if watching:
+	if climbing:
+		_climb_tick(dt)
+	elif watching:
 		_watching(dt)
 	elif zip_node.phase != zip_node.Phase.IDLE:
 		_zip_tick(dt)
@@ -230,6 +242,13 @@ func _web_step(dt: float) -> Vector3:
 	return dv
 
 
+func _cam_right() -> Vector3:
+	var cam := get_viewport().get_camera_3d()
+	if cam == null:
+		return Vector3.RIGHT
+	return cam.global_transform.basis.x
+
+
 func _flat_forward() -> Vector3:
 	var f := -cam_ref.global_transform.basis.z
 	f.y = 0.0
@@ -240,19 +259,36 @@ func _flat_forward() -> Vector3:
 func _try_wall_attach() -> void:
 	if fly or watching or zip_node.phase != zip_node.Phase.IDLE or _web_on():
 		return
-	if not wall_node.probe(self):
+	if not wall_node.probe(self, _cam_right()):
 		return
 	if wish.dot(-wall_node.normal) < 0.3:
 		return  # not heading into the wall
 	if not grounded or Vector3(velocity.x, 0, velocity.z).length() > WALL_ATTACH_SPEED:
-		wall_node.attach(self)
+		wall_node.attach(self, _cam_right(), sprint)
 		last_event = "Wall attach"
 
 
 ## On the wall: crawl/run, wall jump, and the two edge handoffs.
 func _wall_tick(dt: float) -> void:
+	if wrapping:
+		wrap_t += dt
+		var wt := clampf(wrap_t / WALL_WRAP_TIME, 0.0, 1.0)
+		global_position = wrap_from.lerp(wrap_to, smoothstep(0.0, 1.0, wt))
+		velocity = Vector3.ZERO
+		f_wall = Vector3.ZERO
+		f_grip = Vector3.ZERO
+		f_g = Vector3(0, -MASS * G, 0)
+		f_d = Vector3.ZERO
+		f_n = Vector3.ZERO
+		f_app = Vector3.ZERO
+		net = f_g
+		accel = Vector3.ZERO
+		if wt >= 1.0:
+			wrapping = false
+		return
 	var inp := Input.get_vector("move_left", "move_right", "move_forward", "move_back")
-	var r: String = wall_node.step(dt, self, inp, MASS, Input.is_action_just_pressed("jump"))
+	var cr := _cam_right()
+	var r: String = wall_node.step(dt, self, inp, MASS, Input.is_action_just_pressed("jump"), sprint, cr)
 	f_g = Vector3(0, -MASS * G, 0)
 	f_d = drag(velocity)
 	f_n = Vector3.ZERO  # on a wall the normal force is N, drawn separately from F_N
@@ -268,22 +304,70 @@ func _wall_tick(dt: float) -> void:
 		grounded = false
 	move_and_slide()
 	grounded = is_on_floor()
-	if wall_node.active():
-		if grounded:
-			wall_node.detach()  # ran down to the floor
-			edge_down_t = WALL_EDGE_TIME
-			last_event = "Wall edge down"
-		else:
-			var roof: Vector3 = wall_node.top_edge(self)
-			if roof != Vector3.INF:
-				global_position = wall_node.roof_stand(roof)  # over the top, never Watching
-				velocity = Vector3.ZERO
-				wall_node.detach()
-				edge_up_t = WALL_EDGE_TIME
-				grounded = true
-				last_event = "Wall edge up"
+	if not wall_node.active():
+		if not grounded:
+			landing = false
+		return
+	if grounded:
+		wall_node.detach()  # ran down to the floor
+		edge_down_t = WALL_EDGE_TIME
+		last_event = "Wall edge down"
+		return
+	# Stay on the face: re-check contact, pull back onto it, or wrap around an outer corner.
+	if not wall_node.stick(self):
+		var next_face: Vector3 = wall_node.wrap(self, cr)
+		if next_face == Vector3.INF:
+			wall_node.detach()  # nothing within reach: fall away cleanly
+			last_event = "Wall detach"
+			if not grounded:
+				landing = false
+			return
+		wrapping = true
+		wrap_from = global_position
+		wrap_to = next_face
+		wrap_t = 0.0
+		last_event = "Wall corner wrap"
+		return
+	var roof: Vector3 = wall_node.top_edge(self)
+	if roof != Vector3.INF:
+		_start_climb(wall_node.roof_stand(roof))
 	if not grounded:
 		landing = false
+
+
+## Timed climb from the face onto the roof. Kinematic: no physics while it runs, so the future
+## climb-over animation can drive the same window.
+func _start_climb(to: Vector3) -> void:
+	climbing = true
+	climb_t = 0.0
+	climb_from = global_position
+	climb_to = to
+	velocity = Vector3.ZERO
+	wall_node.detach()
+	f_wall = Vector3.ZERO
+	f_grip = Vector3.ZERO
+	last_event = "Wall edge up"
+
+
+func _climb_tick(dt: float) -> void:
+	climb_t += dt
+	var t := clampf(climb_t / WALL_CLIMB_TIME, 0.0, 1.0)
+	global_position = climb_from.lerp(climb_to, smoothstep(0.0, 1.0, t)) + Vector3.UP * sin(t * PI) * 0.12
+	velocity = Vector3.ZERO
+	f_g = Vector3(0, -MASS * G, 0)
+	f_d = Vector3.ZERO
+	f_n = Vector3.ZERO
+	f_app = Vector3.ZERO
+	f_wall = Vector3.ZERO
+	f_grip = Vector3.ZERO
+	net = f_g
+	accel = Vector3.ZERO
+	grounded = false
+	if t >= 1.0:
+		climbing = false
+		global_position = climb_to
+		grounded = true
+		edge_up_t = WALL_EDGE_TIME
 
 
 ## Ctrl: perch if a corner hint is in view, else a web pull at a real face, else nothing at all.
@@ -406,7 +490,7 @@ func _refine_state(s: State) -> State:
 		return State.WATCHING
 	if zip_node.phase != zip_node.Phase.IDLE:
 		return State.ZIP
-	if edge_up_t > 0.0:
+	if climbing or edge_up_t > 0.0:
 		return State.WALL_EDGE_UP
 	if edge_down_t > 0.0:
 		return State.WALL_EDGE_DOWN
