@@ -2,6 +2,12 @@
 
 [ext_resource type="Texture2D" path="res://assets/player_lego/textures/lego_baseColor.png" id="1_os2uf"]
 [ext_resource type="Texture2D" path="res://assets/player_lego/textures/lego_metallicRoughness.png" id="2_ohc5b"]
+[ext_resource type="Animation" path="res://assets/player_lego/anim/swing_up_1.tres" id="3_anim_swing_up_1"]
+[ext_resource type="Animation" path="res://assets/player_lego/anim/swing_up_2.tres" id="4_anim_swing_up_2"]
+[ext_resource type="Animation" path="res://assets/player_lego/anim/swing_down_1.tres" id="5_anim_swing_down_1"]
+[ext_resource type="Animation" path="res://assets/player_lego/anim/swing_down_2.tres" id="6_anim_swing_down_2"]
+[ext_resource type="Animation" path="res://assets/player_lego/anim/swing_jump.tres" id="7_anim_swing_jump"]
+[ext_resource type="Animation" path="res://assets/player_lego/anim/zip.tres" id="8_anim_zip"]
 
 [sub_resource type="StandardMaterial3D" id="StandardMaterial3D_lyf2i"]
 resource_name = "lego"
@@ -796,7 +802,13 @@ _data = {
 &"jump": SubResource("Animation_dbvhj"),
 &"land": SubResource("Animation_4t55u"),
 &"run": SubResource("Animation_1lcdj"),
-&"walk": SubResource("Animation_eydyl")
+&"swing_down_1": ExtResource("5_anim_swing_down_1"),
+&"swing_down_2": ExtResource("6_anim_swing_down_2"),
+&"swing_jump": ExtResource("7_anim_swing_jump"),
+&"swing_up_1": ExtResource("3_anim_swing_up_1"),
+&"swing_up_2": ExtResource("4_anim_swing_up_2"),
+&"walk": SubResource("Animation_eydyl"),
+&"zip": ExtResource("8_anim_zip")
 }
 
 [node name="PlayerRig" type="Node3D" unique_id=1181504297]

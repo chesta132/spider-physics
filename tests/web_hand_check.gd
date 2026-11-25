@@ -87,6 +87,10 @@ func _initialize() -> void:
 		await physics_frame
 	check("both webs hold the rope (%s / %s)" % [wl.phase, wr.phase],
 		wl.phase == wl.Phase.ROPE and wr.phase == wr.Phase.ROPE)
+	await physics_frame
+	var ap: AnimationPlayer = p.get_node("Visual/Model/Rig/AnimationPlayer")
+	check("two-web swing animation selected", ap.current_animation == "moves/swing_up_2" or ap.current_animation == "moves/swing_down_2")
+	check("two-web animation has minimal beat keys", ap.get_animation(ap.current_animation).track_get_key_count(0) == 3)
 	await process_frame
 	await process_frame
 	var sl := seg_start(wl._line)

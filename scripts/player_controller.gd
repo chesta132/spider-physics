@@ -104,6 +104,7 @@ var lean_pitch := 0.0        # rad, cosmetic torso pitch toward the web (0 = upr
 var lean_roll := 0.0         # rad, cosmetic bank into the swing arc
 
 var _shown := -1
+var _shown_webs := 0   # web count the current clip was picked for (1 vs 2 web variants)
 var _landing_crack: MeshInstance3D
 var _crack_age := -1.0
 var _crack_released := false
@@ -236,7 +237,17 @@ func _walk(dt: float) -> void:
 
 
 func _web_on() -> bool:
-	return web_l.phase != web_l.Phase.IDLE or web_r.phase != web_r.Phase.IDLE
+	return _web_count() > 0
+
+
+## Live webs: 1 or 2. Picks the one-web or two-web variant of the swing clips.
+func _web_count() -> int:
+	var n := 0
+	if web_l.phase != web_l.Phase.IDLE:
+		n += 1
+	if web_r.phase != web_r.Phase.IDLE:
+		n += 1
+	return n
 
 
 func _web_input() -> void:
@@ -635,9 +646,11 @@ func _set_state(s: State) -> void:
 		label += "  [" + bar + "]"
 	state = s
 	state_label.text = label
-	if s == _shown:
+	var webs := _web_count()
+	if s == _shown and webs == _shown_webs:
 		return
 	_shown = s
+	_shown_webs = webs
 	_play_ground_clip(s)
 	state_label.modulate = STATE_COLORS[s]
 	var body := visual.get_node_or_null("Body") as MeshInstance3D  # absent with a real model
@@ -647,8 +660,10 @@ func _set_state(s: State) -> void:
 		body.material_override = mat
 
 
-## idle/walk/run only; every other state leaves the last grounded clip running through its
-## crossfade. The clips live in the rig's "moves" library (tools/normalize_rig.gd builds them).
+## State -> clip. Swing states pick the one-web or two-web variant from the live web count.
+## Unlisted states leave the last clip running through its crossfade. Clips live in the rig's
+## "moves" library: the ground/air set from tools/normalize_rig.gd, the web set from
+## tools/add_swing_clips.gd.
 func _play_ground_clip(s: State) -> void:
 	if anim == null:
 		return
@@ -660,11 +675,16 @@ func _play_ground_clip(s: State) -> void:
 		State.JUMP: clip = "jump"
 		State.FALL: clip = "fall"
 		State.LAND: clip = "land"
+		State.SWING_UP: clip = "swing_up_%d" % _web_count()
+		State.SWING_DOWN: clip = "swing_down_%d" % _web_count()
+		State.SWING_JUMP: clip = "swing_jump"
+		State.ZIP: clip = "zip"
 		_:
 			return
 	if anim.has_animation("moves/" + clip):
 		# Impact states snap; the ground trio keeps the slower blend.
-		var fade: float = ANIM_SNAP if s == State.JUMP or s == State.LAND else ANIM_FADE
+		var snap: bool = s == State.JUMP or s == State.LAND or s == State.SWING_JUMP
+		var fade: float = ANIM_SNAP if snap else ANIM_FADE
 		anim.play("moves/" + clip, fade)
 
 
@@ -675,6 +695,9 @@ func _update_anim(_dt: float) -> void:
 	if state == State.FALL:
 		# Faster descent advances the fall pose without changing physics or the clip's loop.
 		anim.speed_scale = clampf(0.8 + absf(velocity.y) / 18.0, 0.8, 1.4)
+	elif state == State.SWING_UP or state == State.SWING_DOWN or state == State.SWING_JUMP or state == State.ZIP:
+		# Web clips are short held/looped pose beats; physics and the live web geometry set timing.
+		anim.speed_scale = 1.0
 	else:
 		anim.speed_scale = clampf(ANIM_RATE * Vector2(velocity.x, velocity.z).length() / WALK_SPEED, 0.8, 1.4)
 
