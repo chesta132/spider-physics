@@ -213,28 +213,27 @@ func _initialize() -> void:
 	if sk != null:
 		(p.get_node("Visual") as Node3D).rotation.y = 0.0  # measuring the rig, not the current heading
 		await process_frame
-		var lo := Vector3(1e9, 1e9, 1e9)
-		var hi := -lo
-		var toe_z := 0.0
-		var foot_z := 0.0
-		for i in sk.get_bone_count():
-			var bn: String = sk.get_bone_name(i)
-			if bn.begins_with("_"):
-				continue  # _rootJoint is a rig artefact parked 2 m off the body
-			var b: Transform3D = sk.global_transform * sk.get_bone_global_rest(i)  # bone rest is skeleton-local
-			var o: Vector3 = b.origin - p.global_position  # player-local, so the street offset cancels
-			lo = lo.min(o)
-			hi = hi.max(o)
-			if bn.contains("ToeBase") and not bn.contains("end"):
-				toe_z = o.z
-			elif bn.contains("Foot"):
-				foot_z = o.z
+		# Measure the skinned mesh, not the bone origins: a lego rig's bones sit at joints and span
+		# far less than the body, and its bind-space AABB is not the drawn pose.
+		var box := _skinned_bounds(model, sk, p.global_position)
+		var lo := box.position
+		var hi := box.end
 		var h: float = hi.y - lo.y
 		check("model stands 1.8 m tall (%.3f m)" % h, h > 1.7 and h < 1.9)
 		check("model feet sit on the body origin (%.3f m)" % lo.y, absf(lo.y) < 0.06)
 		check("model is centred on the capsule axis (x %.3f, z %.3f)" % [(lo.x + hi.x) * 0.5, (lo.z + hi.z) * 0.5],
 			absf((lo.x + hi.x) * 0.5) < 0.12 and absf((lo.z + hi.z) * 0.5) < 0.12)
-		check("model faces +Z (toe %.2f > heel %.2f)" % [toe_z, foot_z], toe_z > foot_z)
+		var toe := sk.find_bone("ToeBase_L")
+		var foot := sk.find_bone("Foot_L")
+		if toe < 0:
+			toe = sk.find_bone("Toe.L")
+			foot = sk.find_bone("Foot.L")
+		if toe >= 0 and foot >= 0:
+			var toe_z: float = (sk.global_transform * sk.get_bone_global_rest(toe)).origin.z - p.global_position.z
+			var foot_z: float = (sk.global_transform * sk.get_bone_global_rest(foot)).origin.z - p.global_position.z
+			check("model faces +Z (toe %.2f > heel %.2f)" % [toe_z, foot_z], toe_z > foot_z)
+		else:
+			print("NOTE facing: this rig has no toe/foot bones — facing verified in the render pass")
 
 	# 5. F3 overlay and the state label survived the swap.
 	check("F3 physics HUD still present", p.get_node_or_null("PhysicsHUD") != null)
@@ -277,3 +276,43 @@ func _find_skeleton(n: Node) -> Skeleton3D:
 		if s:
 			return s
 	return null
+
+
+## World-space AABB of the skinned mesh in its rest pose, shifted into player-local space so the
+## street offset cancels. Sums w_i * (bone_global_rest * bind_pose * vertex) — the mesh's own AABB
+## is bind-space and lies about the drawn pose.
+func _skinned_bounds(model: Node, sk: Skeleton3D, origin: Vector3) -> AABB:
+	var mi: MeshInstance3D = null
+	for n in model.find_children("*", "MeshInstance3D", true, false):
+		mi = n
+		break
+	if mi == null or mi.skin == null:
+		return AABB()
+	var skin: Skin = mi.skin
+	var arr := (mi.mesh as ArrayMesh).surface_get_arrays(0)
+	var verts: PackedVector3Array = arr[Mesh.ARRAY_VERTEX]
+	var bones: PackedInt32Array = arr[Mesh.ARRAY_BONES]
+	var weights: PackedFloat32Array = arr[Mesh.ARRAY_WEIGHTS]
+	var stride: int = bones.size() / verts.size()
+	var mats: Array[Transform3D] = []
+	for i in skin.get_bind_count():
+		var bn := sk.find_bone(skin.get_bind_name(i))  # glTF binds are by name; ids read -1
+		mats.append(sk.get_bone_global_rest(bn) * skin.get_bind_pose(i))
+	var xf := sk.global_transform
+	var lo := Vector3(1e9, 1e9, 1e9)
+	var hi := -lo
+	for v in verts.size():
+		var p := Vector3.ZERO
+		var wsum := 0.0
+		for k in stride:
+			var w: float = weights[v * stride + k]
+			if w == 0.0:
+				continue
+			p += (mats[bones[v * stride + k]] * verts[v]) * w
+			wsum += w
+		if wsum < 0.001:
+			continue
+		p = (xf * (p / wsum)) - origin
+		lo = lo.min(p)
+		hi = hi.max(p)
+	return AABB(lo, hi - lo)

@@ -6,7 +6,7 @@
 [ext_resource type="Script" path="res://scripts/web.gd" id="4_web"]
 [ext_resource type="Script" path="res://scripts/zip.gd" id="5_zip"]
 [ext_resource type="Script" path="res://scripts/wall.gd" id="6_wall"]
-[ext_resource type="PackedScene" path="res://assets/player/scene.gltf" id="7_model"]
+[ext_resource type="PackedScene" path="res://assets/player_lego/scene.gltf" id="7_model"]
 
 [sub_resource type="CapsuleShape3D" id="cap_shape"]
 radius = 0.4
@@ -27,7 +27,8 @@ shape = SubResource("cap_shape")
 [node name="Visual" type="Node3D" parent="."]
 
 [node name="Model" type="Node3D" parent="Visual"]
-position = Vector3(-1.05, 0, 0)
+position = Vector3(0, 0.5934, -0.0192)
+scale = Vector3(0.103465, 0.103465, 0.103465)
 
 [node name="Rig" parent="Visual/Model" instance=ExtResource("7_model")]
 
