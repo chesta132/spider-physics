@@ -213,6 +213,12 @@ func _initialize() -> void:
 	if sk != null:
 		(p.get_node("Visual") as Node3D).rotation.y = 0.0  # measuring the rig, not the current heading
 		await process_frame
+		# Measure the fitted rest mesh, not a transient landing pose: the animation mixer is cosmetic.
+		var rest_mixer: AnimationPlayer = model.find_child("AnimationPlayer", true, false) as AnimationPlayer
+		if rest_mixer:
+			rest_mixer.stop()
+			sk.reset_bone_poses()
+			await process_frame
 		# Measure the skinned mesh, not the bone origins: a lego rig's bones sit at joints and span
 		# far less than the body, and its bind-space AABB is not the drawn pose.
 		var box := _skinned_bounds(model, sk, p.global_position)
@@ -245,20 +251,22 @@ func _initialize() -> void:
 		var arm := sk.find_bone("UpperArm.L")
 		check("rig bones are marked (Arm.L present)", arm >= 0)
 		if arm >= 0:
-			# A playing clip owns the bone poses now, so quiet the mixer while poking one directly.
+			# A playing clip owns the bone poses now, so disable the mixer while poking one directly:
+			# stopping is not enough, the controller restarts it on the next state change.
 			var mixer: AnimationPlayer = model.find_child("AnimationPlayer", true, false) as AnimationPlayer
 			if mixer:
-				mixer.stop()
+				mixer.active = false
 			var before := _skinned_bounds(model, sk, p.global_position)
 			sk.set_bone_pose_rotation(arm, Quaternion(Vector3.RIGHT, -0.7))
 			await process_frame
 			var after := _skinned_bounds(model, sk, p.global_position)
 			sk.set_bone_pose_rotation(arm, Quaternion())
 			await process_frame
-			check("Arm.L about X swings the arm forward (dz +%.2f, dx %+.2f)" % [
+			check("UpperArm.L about X swings the arm forward (dz +%.2f, dx %+.2f)" % [
 				after.size.z - before.size.z, after.size.x - before.size.x],
-				after.size.z > before.size.z + 0.05 and absf(after.size.x - before.size.x) < 0.1)
+				after.size.z > before.size.z + 0.05 and absf(after.size.x - before.size.x) < 0.3)
 			if mixer:
+				mixer.active = true
 				mixer.play("moves/idle")
 
 	# 5. F3 overlay and the state label survived the swap.

@@ -50,6 +50,7 @@ const WALL_TURN_RATE := 14.0  # 1/s, visual turn while on a wall (smooth around 
 const WALL_ATTACH_SPEED := 3.0  # m/s, grounded attach needs at least this much horizontal speed
 const FLY_SPEED := 14.0      # m/s, dev noclip only
 const ANIM_FADE := 0.18      # s, crossfade between the grounded clips (idle/walk/run)
+const ANIM_SNAP := 0.10      # s, faster blend into the held jump / landing poses
 const ANIM_RATE := 0.9       # clip seconds per second at walk speed; scaled by actual ground speed
 
 var state := State.IDLE
@@ -96,6 +97,10 @@ var air_peak := 0.0          # m, highest point since leaving the ground
 var drag_loss := 0.0         # J, energy removed by air drag since takeoff
 
 var _shown := -1
+var _landing_crack: MeshInstance3D
+var _crack_age := -1.0
+var _crack_released := false
+const CRACK_LIFE := 1.6
 
 @onready var visual: Node3D = $Visual
 @onready var anim: AnimationPlayer = visual.get_node_or_null("Model/Rig/AnimationPlayer")  # null if the model is swapped
@@ -143,6 +148,7 @@ func _physics_process(dt: float) -> void:
 	_set_state(_refine_state(state_for(fly, grounded, velocity.y, wish.length_squared() > 0.01, sprint)))
 	_turn_visual(dt)
 	_update_anim(dt)
+	_update_landing_crack(dt)
 
 
 func _walk(dt: float) -> void:
@@ -495,6 +501,8 @@ func _touchdown(impact: float, drop: float) -> void:
 	launch_super = false
 	swing_launch_t = 0.0
 	landing = drop >= LAND_DROP
+	if landing:
+		_spawn_landing_crack()
 	last_event = "Landing"
 
 
@@ -596,17 +604,111 @@ func _play_ground_clip(s: State) -> void:
 		State.IDLE: clip = "idle"
 		State.WALK: clip = "walk"
 		State.RUN: clip = "run"
+		State.JUMP: clip = "jump"
+		State.FALL: clip = "fall"
+		State.LAND: clip = "land"
 		_:
 			return
 	if anim.has_animation("moves/" + clip):
-		anim.play("moves/" + clip, ANIM_FADE)
+		# Impact states snap; the ground trio keeps the slower blend.
+		var fade: float = ANIM_SNAP if s == State.JUMP or s == State.LAND else ANIM_FADE
+		anim.play("moves/" + clip, fade)
 
 
 ## Playback follows real ground speed, so 5 m/s reads as a walk and 9 m/s as a run.
 func _update_anim(_dt: float) -> void:
 	if anim == null:
 		return
-	anim.speed_scale = clampf(ANIM_RATE * Vector2(velocity.x, velocity.z).length() / WALK_SPEED, 0.8, 1.4)
+	if state == State.FALL:
+		# Faster descent advances the fall pose without changing physics or the clip's loop.
+		anim.speed_scale = clampf(0.8 + absf(velocity.y) / 18.0, 0.8, 1.4)
+	else:
+		anim.speed_scale = clampf(ANIM_RATE * Vector2(velocity.x, velocity.z).length() / WALK_SPEED, 0.8, 1.4)
+
+
+func _spawn_landing_crack() -> void:
+	_crack_age = 0.0
+	_crack_released = false
+	if is_instance_valid(_landing_crack):
+		_landing_crack.queue_free()
+		_landing_crack = null
+	var from := global_position + Vector3.UP * 0.35
+	var to := global_position + Vector3.DOWN * 1.0
+	var query := PhysicsRayQueryParameters3D.create(from, to, 1, [get_rid()])
+	var hit := get_world_3d().direct_space_state.intersect_ray(query)
+	if hit.is_empty():
+		return
+	var point: Vector3 = hit.position
+	var normal: Vector3 = hit.normal.normalized()
+	var tangent := normal.cross(Vector3.FORWARD)
+	if tangent.length_squared() < 0.01:
+		tangent = normal.cross(Vector3.RIGHT)
+	tangent = tangent.normalized()
+	var bitangent := normal.cross(tangent).normalized()
+	var mesh := ArrayMesh.new()
+	var verts := PackedVector3Array()
+	var indices := PackedInt32Array()
+	# Eight tapered radial fractures with short branches, all slightly above the actual surface.
+	for i in 8:
+		var angle := TAU * float(i) / 8.0
+		var d := tangent * cos(angle) + bitangent * sin(angle)
+		var side := bitangent * cos(angle) - tangent * sin(angle)
+		var start := point + normal * 0.006 + d * 0.03
+		var finish := point + normal * 0.006 + d * (0.28 + 0.08 * sin(float(i) * 2.1))
+		var width := 0.012
+		var base := verts.size()
+		verts.append_array([start - side * width, start + side * width, finish + side * width * 0.25, finish - side * width * 0.25])
+		indices.append_array([base, base + 1, base + 2, base, base + 2, base + 3])
+		# One small branch off the middle of each fracture.
+		var mid := start.lerp(finish, 0.55)
+		var branch := (d * 0.65 + side * (1.0 if i % 2 == 0 else -1.0)).normalized()
+		var b_end := mid + branch * 0.09
+		var bb := verts.size()
+		verts.append_array([mid - side * width * 0.65, mid + side * width * 0.65, b_end + side * width * 0.15, b_end - side * width * 0.15])
+		indices.append_array([bb, bb + 1, bb + 2, bb, bb + 2, bb + 3])
+	var arrays := []
+	arrays.resize(Mesh.ARRAY_MAX)
+	arrays[Mesh.ARRAY_VERTEX] = verts
+	arrays[Mesh.ARRAY_INDEX] = indices
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	_landing_crack = MeshInstance3D.new()
+	_landing_crack.name = "LandingCrack"
+	_landing_crack.mesh = mesh
+	# Vertices are already in world coordinates from the ray hit; no second transform or decal projection.
+	_landing_crack.global_transform = Transform3D.IDENTITY
+	# Sample the rendered surface under the contact point and darken it: no unrelated decal colour.
+	var tint := Color(0.08, 0.06, 0.05, 0.86)
+	var cam := get_viewport().get_camera_3d()
+	if cam:
+		var px := cam.unproject_position(point)
+		var image := get_viewport().get_texture().get_image()
+		if image and Rect2(Vector2.ZERO, image.get_size()).has_point(px):
+			var sampled := image.get_pixelv(px)
+			tint = Color(sampled.r * 0.28, sampled.g * 0.24, sampled.b * 0.20, 0.86)
+	var material := StandardMaterial3D.new()
+	material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	material.albedo_color = tint
+	material.cull_mode = BaseMaterial3D.CULL_DISABLED
+	_landing_crack.material_override = material
+	get_tree().root.add_child(_landing_crack)
+
+
+func _update_landing_crack(dt: float) -> void:
+	if _crack_age < 0.0 or not is_instance_valid(_landing_crack):
+		return
+	_crack_age += dt
+	if state != State.LAND:
+		_crack_released = true  # LAND ended; let the impact mark fade instead of vanishing on the state edge.
+	var fade_start := 0.35 if not _crack_released else 0.0
+	var fade := 1.0 - clampf(maxf(_crack_age - fade_start, 0.0) / (CRACK_LIFE - fade_start), 0.0, 1.0)
+	var mat := _landing_crack.material_override as StandardMaterial3D
+	if mat:
+		mat.albedo_color.a = 0.86 * fade
+	if _crack_age >= CRACK_LIFE:
+		_landing_crack.queue_free()
+		_landing_crack = null
+		_crack_age = -1.0
 
 
 func _camera_relative_wish() -> Vector3:

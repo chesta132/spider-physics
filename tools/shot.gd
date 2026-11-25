@@ -30,6 +30,13 @@ func _initialize() -> void:
 	get_root().add_child((load("res://scenes/main.tscn") as PackedScene).instantiate())
 
 
+## Drop the player from height so a heavy landing fires: LAND needs a fall past LAND_DROP.
+func player_lift() -> void:
+	var player := get_root().get_node_or_null("Main/Player") as Node3D
+	if player:
+		player.global_position += Vector3.UP * 4.0
+
+
 func _process(_d: float) -> bool:
 	_f += 1
 	if _f == 3:
@@ -43,9 +50,16 @@ func _process(_d: float) -> bool:
 			if _dist > 0.0:
 				(pivot.get_node("Pitch/Arm") as SpringArm3D).spring_length = _dist
 	if _f == 4 and _hold != "":
-		Input.action_press("move_right" if _hold.ends_with("side") else "move_forward")
-		if _hold.begins_with("run"):
-			Input.action_press("sprint")
+		if _hold == "jump":
+			Input.action_press("jump")
+		elif _hold == "land":
+			player_lift()
+		else:
+			Input.action_press("move_right" if _hold.ends_with("side") else "move_forward")
+			if _hold.begins_with("run"):
+				Input.action_press("sprint")
+	if _f == 10 and _hold == "jump":
+		Input.action_release("jump")
 	if _f < _frames:
 		return false
 	var img := get_root().get_texture().get_image()

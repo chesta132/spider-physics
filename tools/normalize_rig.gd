@@ -6,6 +6,8 @@ const SRC := "res://assets/player_lego/scene.gltf"
 const OUT := "res://assets/player_lego/player_rig.tscn"
 const HEIGHT := 1.8
 const D2R := PI / 180.0
+const LAND_THIGH := 38.0  # deg, superhero crouch: thigh and knee flex at full crouch
+const LAND_KNEE := 62.0
 const BLEND := 0.05
 const NAMES := ["Root", "Hips", "Torso", "Head", "Shoulder.L", "Arm.L", "Shoulder.R", "Arm.R", "Leg.L", "Leg.R"]
 ## Measured from the normalized mesh. Left side; right side mirrors X.
@@ -21,15 +23,21 @@ const JOINTS := {
 ## knee/knee_base: flex peaks as the leg passes under the body swinging forward, never in stance.
 ## elbow/elbow_swing: runners hold the elbow bent throughout; walkers nearly straighten it.
 const CLIPS := [
-	{"name": "idle", "len": 2.0, "keys": 12, "thigh": 0.0, "knee": 0.0, "knee_base": 0.0,
+	{"name": "idle", "kind": "gait", "len": 2.0, "keys": 12, "thigh": 0.0, "knee": 0.0, "knee_base": 0.0,
 		"arm": 1.5, "elbow": 3.0, "elbow_swing": 0.0, "lean": 0.8, "yaw": 0.0, "bob": 0.0,
 		"shoulder": 0.0, "splay": 2.0},
-	{"name": "walk", "len": 1.0, "keys": 32, "thigh": 32.0, "knee": 34.0, "knee_base": 3.0,
+	{"name": "walk", "kind": "gait", "len": 1.0, "keys": 32, "thigh": 32.0, "knee": 34.0, "knee_base": 3.0,
 		"arm": 20.0, "elbow": 8.0, "elbow_swing": 16.0, "lean": 2.5, "yaw": 3.0, "bob": 1.0,
 		"shoulder": 0.04, "splay": 9.0},
-	{"name": "run", "len": 0.6, "keys": 48, "thigh": 46.0, "knee": 62.0, "knee_base": 6.0,
+	{"name": "run", "kind": "gait", "len": 0.6, "keys": 48, "thigh": 46.0, "knee": 62.0, "knee_base": 6.0,
 		"arm": 40.0, "elbow": 68.0, "elbow_swing": 22.0, "lean": 10.0, "yaw": 5.0, "bob": 0.92,
 		"shoulder": 0.05, "splay": 16.0},
+	## Air clips LOOP on purpose: a non-looping clip is reset to the rest pose by the mixer the
+	## moment it ends, so a held jump/landing pose has to loop. The snap into each pose comes from
+	## the controller's short crossfade, not from a ramp inside the clip.
+	{"name": "jump", "kind": "jump", "len": 0.40, "keys": 8, "loop": true},
+	{"name": "fall", "kind": "fall", "len": 0.60, "keys": 12, "loop": true},
+	{"name": "land", "kind": "land", "len": 0.80, "keys": 16, "loop": true},
 ]
 const ROT_BONES := ["Torso", "Head", "Shoulder.L", "Shoulder.R", "UpperArm.L", "UpperArm.R", "Forearm.L", "Forearm.R",
 	"Hand.L", "Hand.R", "Thigh.L", "Thigh.R", "LowerLeg.L", "LowerLeg.R"]
@@ -296,7 +304,7 @@ func _build_anim(rig: Node3D) -> void:
 func _clip(c: Dictionary) -> Animation:
 	var a := Animation.new()
 	a.length = c["len"]
-	a.loop_mode = Animation.LOOP_LINEAR
+	a.loop_mode = Animation.LOOP_LINEAR if c.get("loop", true) else Animation.LOOP_NONE
 	var tracks := {}
 	for b in ROT_BONES:
 		tracks[b] = a.add_track(Animation.TYPE_ROTATION_3D)
@@ -314,7 +322,14 @@ func _clip(c: Dictionary) -> Animation:
 		# Hip bob is calibrated, not guessed: the foot is one rigid box with the leg, so its toe
 		# dips in mid-swing. Lift the hips by the measured lowest vertex so the stance foot sits
 		# on the street; bob < 1 leaves the run's extension peak airborne.
-		var dy := -float(c["bob"]) * _lowest_y(_leg_pose(c, p))
+		var dy := 0.0
+		if c["kind"] == "gait" and float(c["bob"]) > 0.0:
+			dy = -float(c["bob"]) * _lowest_y(_leg_pose(c, p))
+		elif c["kind"] == "land":
+			# The folded legs lift the feet clear of the street, so the crouch has to drop by the
+			# measured amount or the character floats above its own shadow.
+			var cr := _land_crouch(fmod(p, 1.0))
+			dy = -_lowest_y([LAND_THIGH * cr, LAND_KNEE * cr, LAND_THIGH * cr, LAND_KNEE * cr])
 		var pose := _pose(c, fmod(p, 1.0), dy)
 		for b in ROT_BONES:
 			a.rotation_track_insert_key(tracks[b], time, Quaternion.from_euler(pose[b]))
@@ -338,6 +353,9 @@ func _leg_pose(c: Dictionary, p: float) -> Array:
 
 
 func _pose(c: Dictionary, p: float, dy: float) -> Dictionary:
+	var kind: String = c["kind"]
+	if kind != "gait":
+		return _air_pose(kind, p, dy)
 	var ph := TAU * p
 	var cosf := cos(ph)  # +1 = left leg forward, right leg back
 	var sinf := sin(ph)
@@ -377,6 +395,72 @@ func _pose(c: Dictionary, p: float, dy: float) -> Dictionary:
 	pose["LowerLeg.R"] = Vector3(legs[3] * D2R, 0.0, 0.0)
 	pose["hips_dy"] = dy
 	pose["head_dy"] = 0.005 * sin(2.0 * ph) if idle else 0.0
+	return pose
+
+
+## Crouch amount for the landing pose at phase q: full depth, with a small settle so the loop
+## breathes instead of freezing dead still.
+func _land_crouch(q: float) -> float:
+	return 1.0 - 0.05 * (0.5 - 0.5 * cos(TAU * q))
+
+
+## Non-ground clips use the same expanded controls. JUMP extends through launch, FALL holds a
+## compact aerodynamic pose, and LAND compresses into the superhero crouch before easing upright.
+func _air_pose(kind: String, p: float, dy: float) -> Dictionary:
+	var q := clampf(p, 0.0, 1.0)
+	var pose := {}
+	for b in ROT_BONES:
+		pose[b] = Vector3.ZERO
+	pose["hips_dy"] = dy
+	pose["head_dy"] = 0.0
+	if kind == "jump":
+		# Launch: legs straight and driving back, arms thrown up and forward, chest open. Held, so a
+		# long super-jump rise keeps the launch pose instead of sagging back to idle.
+		var ease := 1.0  # held launch pose; the crossfade supplies the snap
+		pose["Torso"] = Vector3(-7.0 * D2R * ease, 0.0, 0.0)
+		pose["Head"] = Vector3(6.0 * D2R * ease, 0.0, 0.0)
+		pose["UpperArm.L"] = Vector3(-72.0 * D2R * ease, 0.0, 14.0 * D2R)
+		pose["UpperArm.R"] = Vector3(-72.0 * D2R * ease, 0.0, -14.0 * D2R)
+		pose["Forearm.L"] = Vector3(-16.0 * D2R * ease, 0.0, 0.0)
+		pose["Forearm.R"] = Vector3(-16.0 * D2R * ease, 0.0, 0.0)
+		pose["Hand.L"] = Vector3(-10.0 * D2R * ease, 0.0, 0.0)
+		pose["Hand.R"] = Vector3(-10.0 * D2R * ease, 0.0, 0.0)
+		pose["Thigh.L"] = Vector3(7.0 * D2R * ease, 0.0, 0.0)
+		pose["Thigh.R"] = Vector3(7.0 * D2R * ease, 0.0, 0.0)
+		pose["LowerLeg.L"] = Vector3(-3.0 * D2R * ease, 0.0, 0.0)
+		pose["LowerLeg.R"] = Vector3(-3.0 * D2R * ease, 0.0, 0.0)
+	elif kind == "fall":
+		var breathe := sin(TAU * q)
+		pose["Torso"] = Vector3(10.0 * D2R, 0.0, 2.0 * D2R * breathe)
+		pose["Head"] = Vector3(-5.0 * D2R, 0.0, 0.0)
+		pose["UpperArm.L"] = Vector3(35.0 * D2R, 0.0, 24.0 * D2R)
+		pose["UpperArm.R"] = Vector3(35.0 * D2R, 0.0, -24.0 * D2R)
+		pose["Forearm.L"] = Vector3(-22.0 * D2R, 0.0, 0.0)
+		pose["Forearm.R"] = Vector3(-22.0 * D2R, 0.0, 0.0)
+		pose["Hand.L"] = Vector3(-5.0 * D2R, 0.0, 0.0)
+		pose["Hand.R"] = Vector3(-5.0 * D2R, 0.0, 0.0)
+		pose["Thigh.L"] = Vector3(18.0 * D2R, 0.0, 0.0)
+		pose["Thigh.R"] = Vector3(18.0 * D2R, 0.0, 0.0)
+		pose["LowerLeg.L"] = Vector3(28.0 * D2R, 0.0, 0.0)
+		pose["LowerLeg.R"] = Vector3(28.0 * D2R, 0.0, 0.0)
+	else:  # land: low superhero crouch, held for as long as LAND lasts
+		# Held, not one-shot: see the CLIPS note. The way back up is the crossfade into idle/walk
+		# when the controller leaves LAND.
+		var crouch := _land_crouch(q)
+		pose["Torso"] = Vector3(26.0 * D2R * crouch, 0.0, 0.0)
+		pose["Head"] = Vector3(-8.0 * D2R * crouch, 0.0, 0.0)
+		# Arms reach down and out toward the pavement (three-point landing read), not a guard pose:
+		# the upper arm stays near vertical, the elbow nearly straight, the wrist cocked back.
+		pose["UpperArm.L"] = Vector3(-16.0 * D2R * crouch, 0.0, 26.0 * D2R * crouch)
+		pose["UpperArm.R"] = Vector3(-16.0 * D2R * crouch, 0.0, -26.0 * D2R * crouch)
+		pose["Forearm.L"] = Vector3(-10.0 * D2R * crouch, 0.0, 0.0)
+		pose["Forearm.R"] = Vector3(-10.0 * D2R * crouch, 0.0, 0.0)
+		pose["Hand.L"] = Vector3(14.0 * D2R * crouch, 0.0, 0.0)
+		pose["Hand.R"] = Vector3(14.0 * D2R * crouch, 0.0, 0.0)
+		pose["Thigh.L"] = Vector3(LAND_THIGH * D2R * crouch, 0.0, 0.0)
+		pose["Thigh.R"] = Vector3(LAND_THIGH * D2R * crouch, 0.0, 0.0)
+		pose["LowerLeg.L"] = Vector3(LAND_KNEE * D2R * crouch, 0.0, 0.0)
+		pose["LowerLeg.R"] = Vector3(LAND_KNEE * D2R * crouch, 0.0, 0.0)
 	return pose
 
 
