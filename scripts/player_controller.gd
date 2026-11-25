@@ -574,9 +574,11 @@ func _set_state(s: State) -> void:
 		return
 	_shown = s
 	state_label.modulate = STATE_COLORS[s]
-	var mat := StandardMaterial3D.new()
-	mat.albedo_color = STATE_COLORS[s]
-	(visual.get_node("Body") as MeshInstance3D).material_override = mat
+	var body := visual.get_node_or_null("Body") as MeshInstance3D  # absent with a real model
+	if body:
+		var mat := StandardMaterial3D.new()
+		mat.albedo_color = STATE_COLORS[s]
+		body.material_override = mat
 
 
 func _camera_relative_wish() -> Vector3:

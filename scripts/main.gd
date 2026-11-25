@@ -1,6 +1,8 @@
 extends Node3D
-## Greybox test map: flat ground plus dummy blocks of varying height.
-## Replace the Greybox node's children with the real map later; nothing else depends on them.
+## Map host. With map_scene set, that scene is instanced under Greybox and the player is moved onto
+## its Spawn marker. With it empty, a procedural greybox is built instead.
+
+@export var map_scene: PackedScene
 
 # [center_x, center_z, size_x, height, size_z]
 const BLOCKS := [
@@ -16,6 +18,13 @@ const BLOCKS := [
 
 
 func _ready() -> void:
+	if map_scene:
+		var map := map_scene.instantiate()
+		$Greybox.add_child(map)
+		var spawn := map.get_node_or_null("Spawn") as Node3D
+		if spawn:
+			$Player.global_position = spawn.global_position
+		return
 	_box(Vector3(0, -0.5, 0), Vector3(300, 1, 300), Color(0.35, 0.35, 0.37))
 	for b in BLOCKS:
 		var h: float = b[3]

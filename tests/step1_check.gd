@@ -47,6 +47,7 @@ func _initialize() -> void:
 
 	# Integration: drop onto greybox ground, must land and rest with N + mg = 0
 	var main: Node = load("res://scenes/main.tscn").instantiate()
+	main.set("map_scene", null)  # these checks pin greybox geometry
 	root.add_child(main)
 	for i in 120:
 		await physics_frame

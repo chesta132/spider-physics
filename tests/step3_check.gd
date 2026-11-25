@@ -17,6 +17,7 @@ func check(label: String, ok: bool) -> void:
 
 func _initialize() -> void:
 	var main: Node = load("res://scenes/main.tscn").instantiate()
+	main.set("map_scene", null)  # these checks pin greybox geometry
 	root.add_child(main)
 	var p: CharacterBody3D = main.get_node("Player")
 	for i in 120:

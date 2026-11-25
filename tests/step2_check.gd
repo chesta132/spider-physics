@@ -57,6 +57,7 @@ func _initialize() -> void:
 	check("LAND state has its own color", PC.STATE_COLORS[PC.State.LAND] != PC.STATE_COLORS[PC.State.WALK])
 
 	main = load("res://scenes/main.tscn").instantiate()
+	main.set("map_scene", null)  # these checks pin greybox geometry
 	root.add_child(main)
 	p = main.get_node("Player")
 	for i in 120:
