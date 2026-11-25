@@ -2,8 +2,8 @@ extends Node3D
 ## F3 physics overlay (Giancoli Ch. 1-8). Hidden at startup. Developer block only in debug builds.
 
 const N_TO_M := 0.004  # display scale: arrow length in metres per newton
-const VEC_NAMES := ["F_g", "F_N", "F_app", "F_d", "T", "F_zip"]
-const VEC_COLORS := [Color.RED, Color.GREEN, Color.DEEP_SKY_BLUE, Color.YELLOW, Color.MAGENTA, Color.CYAN]
+const VEC_NAMES := ["F_g", "F_N", "F_app", "F_d", "T", "F_zip", "N", "f"]
+const VEC_COLORS := [Color.RED, Color.GREEN, Color.DEEP_SKY_BLUE, Color.YELLOW, Color.MAGENTA, Color.CYAN, Color.ORANGE, Color.LIME_GREEN]
 const CTRL := preload("res://scripts/player_controller.gd")
 
 var DEV := OS.is_debug_build()
@@ -67,7 +67,7 @@ func _process(_delta: float) -> void:
 	if not _on:
 		return
 	var origin := _p.global_position + Vector3(0, 1.0, 0)
-	var vecs := [_p.f_g, _p.f_n, _p.f_app, _p.f_d, _web().tension_vec(), _p.f_zip]
+	var vecs := [_p.f_g, _p.f_n, _p.f_app, _p.f_d, _web().tension_vec(), _p.f_zip, _p.f_wall, _p.f_grip]
 	_lines.clear_surfaces()
 	_lines.surface_begin(Mesh.PRIMITIVE_LINES)
 	for i in VEC_NAMES.size():
@@ -93,6 +93,8 @@ func _process(_delta: float) -> void:
 	lines.append("Momentum p = m v = (%.0f, %.0f, %.0f) kg m/s" % [m * v.x, m * v.y, m * v.z])
 	lines.append("Energy K = %.0f J   U = %.0f J   E = K+U = %.0f J   lost to drag = %.0f J" % [ke, ug, ke + ug, _p.drag_loss])
 	lines.append("Forces: F_g %.0f  F_N %.0f  F_app %.0f  F_d %.0f  net %.0f N" % [_p.f_g.length(), _p.f_n.length(), _p.f_app.length(), _p.f_d.length(), _p.net.length()])
+	if _p.f_wall != Vector3.ZERO or _p.f_grip != Vector3.ZERO:
+		lines.append("Wall: N = %.0f N (into the surface)   f = %.0f N (grip vs gravity)   normal %s" % [_p.f_wall.length(), _p.f_grip.length(), _p.wall_node.normal.snapped(Vector3.ONE * 0.01)])
 	lines.append("Last event: %s   J = %.0f N s   peak F_N = %.0f N" % [_p.last_event, _p.last_impulse.length(), _p.peak_fn])
 	if _p.zip_node.phase != _p.zip_node.Phase.IDLE or _p.zip_node.last_arrival != "":
 		var z = _p.zip_node

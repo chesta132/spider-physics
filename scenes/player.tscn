@@ -5,6 +5,7 @@
 [ext_resource type="Script" path="res://scripts/orbit_camera.gd" id="3_cam"]
 [ext_resource type="Script" path="res://scripts/web.gd" id="4_web"]
 [ext_resource type="Script" path="res://scripts/zip.gd" id="5_zip"]
+[ext_resource type="Script" path="res://scripts/wall.gd" id="6_wall"]
 
 [sub_resource type="CapsuleShape3D" id="cap_shape"]
 radius = 0.4
@@ -65,6 +66,9 @@ side = 1.0
 
 [node name="Zip" type="Node3D" parent="."]
 script = ExtResource("5_zip")
+
+[node name="Wall" type="Node3D" parent="."]
+script = ExtResource("6_wall")
 
 [node name="StateLabel" type="Label3D" parent="."]
 position = Vector3(0, 2.3, 0)

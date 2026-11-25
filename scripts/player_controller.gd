@@ -5,14 +5,16 @@ extends CharacterBody3D
 ## move_and_slide resolves contacts. Godot's solver owns the touchdown; this script only reads it.
 ## Child "Visual" is cosmetic only; its "Body" mesh is recolored per state.
 
-enum State { IDLE, WALK, RUN, JUMP, FALL, FLY, CHARGE, SUPER, DIVE, FAST_DIVE, LAND, ZIP, WATCHING, SWING_UP, SWING_DOWN, SWING_JUMP }
-const STATE_NAMES := ["IDLE", "WALK", "RUN", "JUMP", "FALL", "DEV-FLY", "CHARGE", "SUPER JUMP", "DIVE", "FAST DIVE", "LAND", "ZIP", "WATCHING", "SWING UP", "SWING DOWN", "SWING JUMP"]
+enum State { IDLE, WALK, RUN, JUMP, FALL, FLY, CHARGE, SUPER, DIVE, FAST_DIVE, LAND, ZIP, WATCHING, SWING_UP, SWING_DOWN, SWING_JUMP, WALL_CRAWL, WALL_RUN, WALL_JUMP, WALL_EDGE_UP, WALL_EDGE_DOWN }
+const STATE_NAMES := ["IDLE", "WALK", "RUN", "JUMP", "FALL", "DEV-FLY", "CHARGE", "SUPER JUMP", "DIVE", "FAST DIVE", "LAND", "ZIP", "WATCHING", "SWING UP", "SWING DOWN", "SWING JUMP", "WALL CRAWL", "WALL RUN", "WALL JUMP", "WALL EDGE UP", "WALL EDGE DOWN"]
 const STATE_COLORS := [
 	Color(0.6, 0.6, 0.6), Color(0.2, 0.8, 0.3), Color(1.0, 0.55, 0.0),
 	Color(0.2, 0.8, 1.0), Color(0.9, 0.2, 0.8), Color(1.0, 1.0, 1.0),
 	Color(1.0, 0.9, 0.1), Color(0.6, 0.1, 1.0), Color(0.1, 0.3, 1.0),
 	Color(1.0, 0.1, 0.1), Color(0.5, 0.3, 0.1), Color(0.0, 0.95, 0.85), Color(0.55, 0.35, 0.95),
 	Color(0.35, 0.8, 1.0), Color(0.1, 0.35, 0.9), Color(0.95, 1.0, 0.35),
+	Color(0.75, 0.55, 1.0), Color(0.95, 0.35, 0.65), Color(1.0, 1.0, 0.75),
+	Color(0.6, 0.95, 0.6), Color(0.55, 0.7, 0.85),
 ]
 
 const MASS := 70.0           # kg
@@ -39,6 +41,9 @@ const SWING_VY := 1.5        # m/s, |velocity.y| above this splits the swing int
 const SWING_JUMP_UP := 6.0   # m/s, upward kick of a jump taken out of a swing
 const SWING_JUMP_FWD := 3.0  # m/s, forward kick of a swing jump
 const SWING_LAUNCH_TIME := 0.8  # s, how long a swing launch keeps the SWING JUMP state
+const WALL_JUMP_TIME := 0.5   # s, how long a wall jump keeps the WALL JUMP state
+const WALL_EDGE_TIME := 0.3   # s, edge transition window (climb over / step down)
+const WALL_ATTACH_SPEED := 3.0  # m/s, grounded attach needs at least this much horizontal speed
 const FLY_SPEED := 14.0      # m/s, dev noclip only
 
 var state := State.IDLE
@@ -51,6 +56,8 @@ var f_n := Vector3.ZERO
 var f_app := Vector3.ZERO
 var f_d := Vector3.ZERO
 var f_zip := Vector3.ZERO       # N, zip pull force (F3 FBD)
+var f_wall := Vector3.ZERO      # N, wall normal force (F3 FBD)
+var f_grip := Vector3.ZERO      # N, wall friction holding the body up (F3 FBD)
 var net := Vector3.ZERO
 var accel := Vector3.ZERO
 var last_impulse := Vector3.ZERO
@@ -64,6 +71,9 @@ var landing := false         # true from a heavy touchdown until the player give
 var watching := false        # perched on a rooftop edge, holding still until input
 var holding := false         # jump held on the ground, before the charge delay elapses
 var swing_launch_t := 0.0    # s, SWING JUMP window left after leaving an up-swing
+var wall_jump_t := 0.0       # s, WALL JUMP window after leaving a wall
+var edge_up_t := 0.0         # s, WALL EDGE UP window after climbing onto a roof
+var edge_down_t := 0.0       # s, WALL EDGE DOWN window after stepping off a wall
 var diving := false
 var fast := false
 var air_peak := 0.0          # m, highest point since leaving the ground
@@ -75,6 +85,7 @@ var _shown := -1
 @onready var web_l = $WebLeft
 @onready var web_r = $WebRight
 @onready var zip_node = $Zip
+@onready var wall_node = $Wall
 @onready var cam_ref: Camera3D = $Pivot/Pitch/Arm/Camera
 @onready var state_label: Label3D = $StateLabel
 
@@ -91,6 +102,11 @@ func _physics_process(dt: float) -> void:
 		drag_loss = 0.0
 	wish = _camera_relative_wish()
 	sprint = Input.is_action_pressed("sprint")
+	f_wall = Vector3.ZERO
+	f_grip = Vector3.ZERO
+	wall_jump_t = maxf(wall_jump_t - dt, 0.0)
+	edge_up_t = maxf(edge_up_t - dt, 0.0)
+	edge_down_t = maxf(edge_down_t - dt, 0.0)
 	if Input.is_action_just_pressed("zip") and not fly and zip_node.phase == zip_node.Phase.IDLE:
 		if _zip_start():
 			watching = false  # a real zip started, so leave the perch
@@ -98,6 +114,8 @@ func _physics_process(dt: float) -> void:
 		_watching(dt)
 	elif zip_node.phase != zip_node.Phase.IDLE:
 		_zip_tick(dt)
+	elif wall_node.active():
+		_wall_tick(dt)
 	elif fly:
 		_fly(dt)
 	else:
@@ -178,6 +196,7 @@ func _walk(dt: float) -> void:
 	grounded = now_grounded
 	if not grounded:
 		landing = false
+	_try_wall_attach()
 
 
 func _web_on() -> bool:
@@ -215,6 +234,56 @@ func _flat_forward() -> Vector3:
 	var f := -cam_ref.global_transform.basis.z
 	f.y = 0.0
 	return f.normalized() if f.length_squared() > 0.001 else Vector3.FORWARD
+
+
+## Attach to a vertical face when the body is moving into it.
+func _try_wall_attach() -> void:
+	if fly or watching or zip_node.phase != zip_node.Phase.IDLE or _web_on():
+		return
+	if not wall_node.probe(self):
+		return
+	if wish.dot(-wall_node.normal) < 0.3:
+		return  # not heading into the wall
+	if not grounded or Vector3(velocity.x, 0, velocity.z).length() > WALL_ATTACH_SPEED:
+		wall_node.attach(self)
+		last_event = "Wall attach"
+
+
+## On the wall: crawl/run, wall jump, and the two edge handoffs.
+func _wall_tick(dt: float) -> void:
+	var inp := Input.get_vector("move_left", "move_right", "move_forward", "move_back")
+	var r: String = wall_node.step(dt, self, inp, MASS, Input.is_action_just_pressed("jump"))
+	f_g = Vector3(0, -MASS * G, 0)
+	f_d = drag(velocity)
+	f_n = Vector3.ZERO  # on a wall the normal force is N, drawn separately from F_N
+	f_app = Vector3.ZERO
+	f_wall = wall_node.f_wall
+	f_grip = wall_node.f_grip
+	net = f_g + f_d + f_n + f_app
+	accel = net / MASS
+	if r == "jump":
+		last_impulse = MASS * velocity
+		last_event = "Wall jump"
+		wall_jump_t = WALL_JUMP_TIME
+		grounded = false
+	move_and_slide()
+	grounded = is_on_floor()
+	if wall_node.active():
+		if grounded:
+			wall_node.detach()  # ran down to the floor
+			edge_down_t = WALL_EDGE_TIME
+			last_event = "Wall edge down"
+		else:
+			var roof: Vector3 = wall_node.top_edge(self)
+			if roof != Vector3.INF:
+				global_position = wall_node.roof_stand(roof)  # over the top, never Watching
+				velocity = Vector3.ZERO
+				wall_node.detach()
+				edge_up_t = WALL_EDGE_TIME
+				grounded = true
+				last_event = "Wall edge up"
+	if not grounded:
+		landing = false
 
 
 ## Ctrl: perch if a corner hint is in view, else a web pull at a real face, else nothing at all.
@@ -337,6 +406,14 @@ func _refine_state(s: State) -> State:
 		return State.WATCHING
 	if zip_node.phase != zip_node.Phase.IDLE:
 		return State.ZIP
+	if edge_up_t > 0.0:
+		return State.WALL_EDGE_UP
+	if edge_down_t > 0.0:
+		return State.WALL_EDGE_DOWN
+	if wall_node.active():
+		return State.WALL_RUN if wall_node.phase == wall_node.Phase.RUN else State.WALL_CRAWL
+	if wall_jump_t > 0.0 and not grounded and velocity.y > 0.0:
+		return State.WALL_JUMP
 	if not grounded and _web_on():
 		# Swing sub-states for future up/down animations. Dead zone holds the last one: no flicker.
 		if velocity.y > SWING_VY:
