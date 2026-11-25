@@ -45,6 +45,8 @@ const WALL_JUMP_TIME := 0.5   # s, how long a wall jump keeps the WALL JUMP stat
 const WALL_EDGE_TIME := 0.3   # s, edge transition window (climb over / step down)
 const WALL_CLIMB_TIME := 0.3  # s, smooth climb from the wall face onto the roof
 const WALL_WRAP_TIME := 0.15  # s, smooth slide around an outer corner onto the next face
+const WALL_REATTACH_CD := 0.12  # s, no re-grabbing the wall just jumped off
+const WALL_TURN_RATE := 14.0  # 1/s, visual turn while on a wall (smooth around corners)
 const WALL_ATTACH_SPEED := 3.0  # m/s, grounded attach needs at least this much horizontal speed
 const FLY_SPEED := 14.0      # m/s, dev noclip only
 
@@ -74,6 +76,8 @@ var watching := false        # perched on a rooftop edge, holding still until in
 var holding := false         # jump held on the ground, before the charge delay elapses
 var swing_launch_t := 0.0    # s, SWING JUMP window left after leaving an up-swing
 var wall_jump_t := 0.0       # s, WALL JUMP window after leaving a wall
+var wall_cd := 0.0           # s, re-attach grace after a wall jump
+var wall_cd_normal := Vector3.ZERO  # normal of the face that was jumped off
 var edge_up_t := 0.0         # s, WALL EDGE UP window after climbing onto a roof
 var edge_down_t := 0.0       # s, WALL EDGE DOWN window after stepping off a wall
 var wrapping := false        # mid corner wrap: a timed interpolation, no physics
@@ -115,6 +119,7 @@ func _physics_process(dt: float) -> void:
 	f_wall = Vector3.ZERO
 	f_grip = Vector3.ZERO
 	wall_jump_t = maxf(wall_jump_t - dt, 0.0)
+	wall_cd = maxf(wall_cd - dt, 0.0)
 	edge_up_t = maxf(edge_up_t - dt, 0.0)
 	edge_down_t = maxf(edge_down_t - dt, 0.0)
 	if Input.is_action_just_pressed("zip") and not fly and zip_node.phase == zip_node.Phase.IDLE:
@@ -261,6 +266,8 @@ func _try_wall_attach() -> void:
 		return
 	if not wall_node.probe(self, _cam_right()):
 		return
+	if wall_cd > 0.0 and wall_node.normal.dot(wall_cd_normal) > 0.7:
+		return  # just jumped off this face: let the launch clear it first
 	if wish.dot(-wall_node.normal) < 0.3:
 		return  # not heading into the wall
 	if not grounded or Vector3(velocity.x, 0, velocity.z).length() > WALL_ATTACH_SPEED:
@@ -301,6 +308,8 @@ func _wall_tick(dt: float) -> void:
 		last_impulse = MASS * velocity
 		last_event = "Wall jump"
 		wall_jump_t = WALL_JUMP_TIME
+		wall_cd = WALL_REATTACH_CD  # grace: launch clear of this face before it can grab again
+		wall_cd_normal = wall_node.normal
 		grounded = false
 	move_and_slide()
 	grounded = is_on_floor()
@@ -537,10 +546,17 @@ func _fly(dt: float) -> void:
 
 
 func _turn_visual(dt: float) -> void:
+	var target := 0.0
+	if wall_node.active():
+		# On a wall the body faces into the surface (+Z along -normal), whatever the speed.
+		# Lerped like any other heading, so a corner wrap turns smoothly instead of snapping.
+		target = atan2(-wall_node.normal.x, -wall_node.normal.z)
+		visual.rotation.y = lerp_angle(visual.rotation.y, target, clampf(WALL_TURN_RATE * dt, 0.0, 1.0))
+		return
 	var h := Vector3(velocity.x, 0, velocity.z)
 	if h.length() < 0.3:
 		return
-	var target := atan2(h.x, h.z)  # Visual local +Z faces the direction of travel
+	target = atan2(h.x, h.z)  # Visual local +Z faces the direction of travel
 	visual.rotation.y = lerp_angle(visual.rotation.y, target, clampf(TURN_RATE * dt, 0.0, 1.0))
 
 

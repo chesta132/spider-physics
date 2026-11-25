@@ -242,12 +242,21 @@ func _initialize() -> void:
 	check("attached before the corner", wall.active())
 	Input.action_press("move_right")
 	var wrapped := false
-	for i in 120:
+	var prev_yaw: float = p.visual.rotation.y
+	var max_yaw_step := 0.0
+	for i in 140:
 		await physics_frame
+		max_yaw_step = maxf(max_yaw_step, absf(angle_difference(prev_yaw, p.visual.rotation.y)))
+		prev_yaw = p.visual.rotation.y
 		if wall.normal.z > 0.9:
 			wrapped = true
 			break
 	Input.action_release("move_right")
+	for i in 25:  # let the visual finish turning onto the new face
+		await physics_frame
+		max_yaw_step = maxf(max_yaw_step, absf(angle_difference(prev_yaw, p.visual.rotation.y)))
+		prev_yaw = p.visual.rotation.y
+	check("corner wrap turns smoothly (max yaw step %.2f rad)" % max_yaw_step, max_yaw_step < 0.6)
 	check("corner wrap adopts the perpendicular face (normal %s)" % wall.normal, wrapped)
 	check("corner wrap keeps the body on a wall", wall.active())
 	check("corner wrap stays in a wall state (state %s)" % p.STATE_NAMES[p.state], p.state == p.State.WALL_CRAWL or p.state == p.State.WALL_RUN)
@@ -282,6 +291,51 @@ func _initialize() -> void:
 	check("climb-over spans several frames (%d)" % climb_frames, climb_frames >= 8)
 	check("climb-over never teleports (max step %.2f m)" % max_step, max_step < 0.6)
 	check("climb-over ends grounded on the roof (y=%.2f)" % p.global_position.y, p.grounded and p.global_position.y > 19.5)
+
+	# 13. The dummy faces into the wall while crawling, with no roll or pitch
+	p.global_position = Vector3(30, 0.1, -22)
+	p.velocity = Vector3.ZERO
+	for i in 10:
+		await physics_frame
+	cam.rotation.y = deg_to_rad(-90.0)
+	p.global_position = Vector3(38.5, 5.0, -22)
+	p.velocity = Vector3.ZERO
+	for i in 3:
+		await physics_frame
+	Input.action_press("move_forward")
+	for i in 25:
+		await physics_frame
+	var want_yaw := atan2(-wall.normal.x, -wall.normal.z)
+	check("dummy faces into the wall (yaw %.2f vs %.2f)" % [p.visual.rotation.y, want_yaw],
+		absf(angle_difference(p.visual.rotation.y, want_yaw)) < 0.15)
+	check("visual has no roll or pitch on the wall",
+		absf(p.visual.rotation.x) < 0.01 and absf(p.visual.rotation.z) < 0.01)
+
+	# 14. Wall jump while still holding into the wall must not re-grab the same face
+	Input.action_press("jump")
+	for i in 3:
+		await physics_frame
+	Input.action_release("jump")
+	var reattached := false
+	for i in 5:
+		await physics_frame
+		if wall.active():
+			reattached = true
+	check("wall jump with W held does not re-attach the same wall", not reattached)
+	check("wall jump with W held still launches away (vx %.1f)" % p.velocity.x, p.velocity.x < -3.0)
+	Input.action_release("move_forward")
+	for i in 60:
+		await physics_frame
+	# after the grace window the same face grabs again
+	p.global_position = Vector3(38.5, 5.0, -22)
+	p.velocity = Vector3.ZERO
+	for i in 3:
+		await physics_frame
+	Input.action_press("move_forward")
+	for i in 25:
+		await physics_frame
+	Input.action_release("move_forward")
+	check("the same face grabs again after the cooldown", wall.active())
 
 	print("RESULT: ", "ALL PASS" if fails == 0 else "%d FAIL" % fails)
 	quit(1 if fails else 0)
