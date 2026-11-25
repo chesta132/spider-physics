@@ -235,6 +235,26 @@ func _initialize() -> void:
 		else:
 			print("NOTE facing: this rig has no toe/foot bones — facing verified in the render pass")
 
+		# 4b. Normalized rig: every bone rest is world-aligned, so a rotation about X swings a limb
+		# forward instead of into whatever frame the Sketchfab export left it in.
+		var aligned := true
+		for i in sk.get_bone_count():
+			if not sk.get_bone_global_rest(i).basis.is_equal_approx(Basis()):
+				aligned = false
+		check("rig bones are axis-aligned at rest", aligned)
+		var arm := sk.find_bone("Arm.L")
+		check("rig bones are marked (Arm.L present)", arm >= 0)
+		if arm >= 0:
+			var before := _skinned_bounds(model, sk, p.global_position)
+			sk.set_bone_pose_rotation(arm, Quaternion(Vector3.RIGHT, -0.7))
+			await process_frame
+			var after := _skinned_bounds(model, sk, p.global_position)
+			sk.set_bone_pose_rotation(arm, Quaternion())
+			await process_frame
+			check("Arm.L about X swings the arm forward (dz +%.2f, dx %+.2f)" % [
+				after.size.z - before.size.z, after.size.x - before.size.x],
+				after.size.z > before.size.z + 0.05 and absf(after.size.x - before.size.x) < 0.1)
+
 	# 5. F3 overlay and the state label survived the swap.
 	check("F3 physics HUD still present", p.get_node_or_null("PhysicsHUD") != null)
 	check("state label still present", p.get_node_or_null("StateLabel") != null)
@@ -278,9 +298,9 @@ func _find_skeleton(n: Node) -> Skeleton3D:
 	return null
 
 
-## World-space AABB of the skinned mesh in its rest pose, shifted into player-local space so the
-## street offset cancels. Sums w_i * (bone_global_rest * bind_pose * vertex) — the mesh's own AABB
-## is bind-space and lies about the drawn pose.
+## AABB of the drawn (skinned, posed) mesh in player-local space, so the street offset cancels.
+## Sums w_i * (bone_global_pose * bind_pose * vertex) — the mesh's own AABB is bind-space and lies
+## about the drawn pose.
 func _skinned_bounds(model: Node, sk: Skeleton3D, origin: Vector3) -> AABB:
 	var mi: MeshInstance3D = null
 	for n in model.find_children("*", "MeshInstance3D", true, false):
@@ -296,8 +316,7 @@ func _skinned_bounds(model: Node, sk: Skeleton3D, origin: Vector3) -> AABB:
 	var stride: int = bones.size() / verts.size()
 	var mats: Array[Transform3D] = []
 	for i in skin.get_bind_count():
-		var bn := sk.find_bone(skin.get_bind_name(i))  # glTF binds are by name; ids read -1
-		mats.append(sk.get_bone_global_rest(bn) * skin.get_bind_pose(i))
+		mats.append(sk.get_bone_global_pose(sk.find_bone(skin.get_bind_name(i))) * skin.get_bind_pose(i))
 	var xf := sk.global_transform
 	var lo := Vector3(1e9, 1e9, 1e9)
 	var hi := -lo
