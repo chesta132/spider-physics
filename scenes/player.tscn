@@ -3,6 +3,7 @@
 [ext_resource type="Script" path="res://scripts/player_controller.gd" id="1_ctrl"]
 [ext_resource type="Script" path="res://scripts/physics_hud.gd" id="2_hud"]
 [ext_resource type="Script" path="res://scripts/orbit_camera.gd" id="3_cam"]
+[ext_resource type="Script" path="res://scripts/web.gd" id="4_web"]
 
 [sub_resource type="CapsuleShape3D" id="cap_shape"]
 radius = 0.4
@@ -52,6 +53,14 @@ collision_mask = 1
 [node name="Camera" type="Camera3D" parent="Pivot/Pitch/Arm"]
 near = 0.05
 current = true
+
+[node name="WebLeft" type="Node3D" parent="."]
+script = ExtResource("4_web")
+side = -1.0
+
+[node name="WebRight" type="Node3D" parent="."]
+script = ExtResource("4_web")
+side = 1.0
 
 [node name="StateLabel" type="Label3D" parent="."]
 position = Vector3(0, 2.3, 0)

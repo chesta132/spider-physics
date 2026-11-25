@@ -63,6 +63,9 @@ var drag_loss := 0.0         # J, energy removed by air drag since takeoff
 var _shown := -1
 
 @onready var visual: Node3D = $Visual
+@onready var web_l = $WebLeft
+@onready var web_r = $WebRight
+@onready var cam_ref: Camera3D = $Pivot/Pitch/Arm/Camera
 @onready var state_label: Label3D = $StateLabel
 
 
@@ -96,6 +99,7 @@ func _walk(dt: float) -> void:
 	if wish.length_squared() > 0.01 or Input.is_action_just_pressed("jump"):
 		landing = false
 
+	_web_input()
 	var want := wish * (RUN_SPEED if sprint else WALK_SPEED)
 	diving = not grounded and velocity.y < 0.0 and air_peak - global_position.y >= DIVE_DROP
 	fast = diving and Input.is_action_pressed("fast_dive")
@@ -121,16 +125,19 @@ func _walk(dt: float) -> void:
 	else:
 		f_n = Vector3.ZERO
 		var steer := DIVE_STEER_FAST if fast else (DIVE_STEER if diving else AIR_ACCEL)
-		f_app = wish * steer * MASS
+		f_app = Vector3.ZERO if _web_on() else wish * steer * MASS  # the rope owns the motion while swinging
 	f_d = drag(velocity, DRAG_K_FAST if fast else DRAG_K)
 	net = f_g + f_n + f_app + f_d
 	accel = net / MASS
 	velocity += accel * dt
+	velocity += _web_step(dt)
 	if not grounded:
 		drag_loss += -f_d.dot(velocity) * dt
 	var pre_vy := velocity.y
 	move_and_slide()  # the solver stops the body on the floor; nothing below writes velocity.y
 	var now_grounded := is_on_floor()
+	web_l.project(self, now_grounded)  # fixed-length rope: back onto the arc after the solver moved the body
+	web_r.project(self, now_grounded)
 	if was_grounded and not now_grounded:
 		air_peak = global_position.y  # takeoff
 	if now_grounded and not was_grounded:
@@ -141,6 +148,41 @@ func _walk(dt: float) -> void:
 	grounded = now_grounded
 	if not grounded:
 		landing = false
+
+
+func _web_on() -> bool:
+	return web_l.phase != web_l.Phase.IDLE or web_r.phase != web_r.Phase.IDLE
+
+
+func _web_input() -> void:
+	var fwd := _flat_forward()
+	if Input.is_action_just_pressed("web_left") and web_l.phase == web_l.Phase.IDLE:
+		web_l.fire(cam_ref, get_rid())
+	if Input.is_action_just_pressed("web_right") and web_r.phase == web_r.Phase.IDLE:
+		web_r.fire(cam_ref, get_rid())
+	if Input.is_action_just_released("web_left"):
+		_launch_web(web_l, fwd)
+	if Input.is_action_just_released("web_right"):
+		_launch_web(web_r, fwd)
+
+
+func _launch_web(w, fwd: Vector3) -> void:
+	var kick: Vector3 = w.release(fwd)
+	if kick != Vector3.ZERO:
+		velocity += kick
+
+
+func _web_step(dt: float) -> Vector3:
+	var fwd := _flat_forward()  # swing drive uses camera yaw only; pitch must not push the body into the floor
+	var dv: Vector3 = web_l.step(dt, MASS, velocity, fwd, wish, grounded)
+	dv += web_r.step(dt, MASS, velocity, fwd, wish, grounded)
+	return dv
+
+
+func _flat_forward() -> Vector3:
+	var f := -cam_ref.global_transform.basis.z
+	f.y = 0.0
+	return f.normalized() if f.length_squared() > 0.001 else Vector3.FORWARD
 
 
 func _launch() -> void:

@@ -2,8 +2,8 @@ extends Node3D
 ## F3 physics overlay (Giancoli Ch. 1-8). Hidden at startup. Developer block only in debug builds.
 
 const N_TO_M := 0.004  # display scale: arrow length in metres per newton
-const VEC_NAMES := ["F_g", "F_N", "F_app", "F_d"]
-const VEC_COLORS := [Color.RED, Color.GREEN, Color.DEEP_SKY_BLUE, Color.YELLOW]
+const VEC_NAMES := ["F_g", "F_N", "F_app", "F_d", "T"]
+const VEC_COLORS := [Color.RED, Color.GREEN, Color.DEEP_SKY_BLUE, Color.YELLOW, Color.MAGENTA]
 const CTRL := preload("res://scripts/player_controller.gd")
 
 var DEV := OS.is_debug_build()
@@ -46,6 +46,10 @@ func _ready() -> void:
 	_set_on(false)
 
 
+func _web():
+	return _p.web_l if _p.web_l.phase == _p.web_l.Phase.ROPE else _p.web_r
+
+
 func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("debug_hud"):
 		_set_on(not _on)
@@ -63,7 +67,7 @@ func _process(_delta: float) -> void:
 	if not _on:
 		return
 	var origin := _p.global_position + Vector3(0, 1.0, 0)
-	var vecs := [_p.f_g, _p.f_n, _p.f_app, _p.f_d]
+	var vecs := [_p.f_g, _p.f_n, _p.f_app, _p.f_d, _web().tension_vec()]
 	_lines.clear_surfaces()
 	_lines.surface_begin(Mesh.PRIMITIVE_LINES)
 	for i in VEC_NAMES.size():
@@ -90,7 +94,13 @@ func _process(_delta: float) -> void:
 	lines.append("Energy K = %.0f J   U = %.0f J   E = K+U = %.0f J   lost to drag = %.0f J" % [ke, ug, ke + ug, _p.drag_loss])
 	lines.append("Forces: F_g %.0f  F_N %.0f  F_app %.0f  F_d %.0f  net %.0f N" % [_p.f_g.length(), _p.f_n.length(), _p.f_app.length(), _p.f_d.length(), _p.net.length()])
 	lines.append("Last event: %s   J = %.0f N s   peak F_N = %.0f N" % [_p.last_event, _p.last_impulse.length(), _p.peak_fn])
-	lines.append("Circular motion a_c = v^2/r: dormant (swing not built yet)")
+	var w = _web()
+	if w.phase == w.Phase.ROPE:
+		lines.append("Pendulum [%s web]  r = %.2f m   T = %.0f N" % ["left" if w.side < 0.0 else "right", w.last_radius, w.last_tension])
+		lines.append("Circular v_tan = %.2f m/s   a_c = v^2/r = %.2f m/s^2   F_c = m v^2/r = %.0f N" % [w.last_vt, w.last_ac, m * w.last_ac])
+		lines.append("Motion: non-uniform (speed changes with height along the arc)" if absf(w.last_vt - v.length()) > 0.05 else "Motion: uniform (speed constant along the arc)")
+	else:
+		lines.append("Circular motion a_c = v^2/r: no web attached (LMB left, RMB right)")
 	if DEV:
 		var col := "none"
 		if _p.get_slide_collision_count() > 0:
