@@ -20,12 +20,17 @@ const ATTACH_FWD := 7.0                 # m/s, forward momentum the web hands yo
 const REEL_RATE := 12.0                 # m/s, rope shortens right after the web bites: the yank that lifts a ground shot
 const REEL_TIME := 0.35                 # s, how long the attach reel lasts
 const SWING_ASSIST := 8.0               # m/s^2, tangential push toward camera forward
+const SWING_EXTRA_G := 2.5             # m/s^2, extra downward pull while swinging: heavier, less floaty
 const PUMP := 5.0                       # m/s^2, tangential push from held WASD
 const MAX_SWING := 26.0                 # m/s, assist stops above this speed
-const CASE_A_FWD := 7.0                 # m/s, anchor ahead: strong forward boost
-const CASE_A_UP := 7.0                  # m/s, strong upward boost
-const CASE_B_FWD := 2.0                 # m/s, anchor behind: subtle forward lift
-const CASE_B_UP := 2.0                  # m/s, subtle upward lift
+const CASE_A_FWD := 6.0                 # m/s, anchor ahead: strong forward boost
+const CASE_A_UP := 6.0                 # m/s, strong upward boost
+const CASE_B_FWD := 1.6                # m/s, anchor behind: subtle forward lift
+const CASE_B_UP := 1.6                 # m/s, subtle upward lift
+const RELEASE_REF_SPEED := 10.0        # m/s, at or below this the kick is full strength
+const RELEASE_FALLOFF := 0.08          # kick scale lost per m/s above the reference
+const RELEASE_MIN_SCALE := 0.4         # never scale the kick below 40%
+const RELEASE_MAX_SPEED := 24.0        # m/s, total speed cap after the kick
 const STRAND_TIME := 2.0                # s, falling strand lifetime after release
 const STRAND_DRAG := 0.4                # 1/s
 
@@ -131,12 +136,12 @@ func fire(cam: Camera3D, body_rid: RID) -> bool:
 
 
 ## Let go. Returns the launch velocity change (m/s).
-func release(cam_fwd: Vector3) -> Vector3:
+func release(cam_fwd: Vector3, speed: float) -> Vector3:
 	var kick := Vector3.ZERO
 	if phase == Phase.ROPE:
 		var ahead := (anchor - global_position).dot(cam_fwd) > 0.0
 		last_case = "A" if ahead else "B"
-		kick = kick_for(ahead, cam_fwd)
+		kick = scaled_kick(ahead, cam_fwd, speed)
 		strand_anchor = anchor
 		strand_tip = global_position + Vector3(0, 1.4, 0)
 		strand_vel = Vector3.ZERO
@@ -152,6 +157,17 @@ static func kick_for(ahead: bool, fwd: Vector3) -> Vector3:
 	if ahead:
 		return fwd * CASE_A_FWD + Vector3.UP * CASE_A_UP
 	return fwd * CASE_B_FWD + Vector3.UP * CASE_B_UP
+
+
+## Release kick for the speed the body already carries: fast swings get a smaller kick,
+## and total speed after the kick never exceeds RELEASE_MAX_SPEED.
+static func scaled_kick(ahead: bool, fwd: Vector3, speed: float) -> Vector3:
+	var k := kick_for(ahead, fwd)
+	k *= clampf(1.0 - (speed - RELEASE_REF_SPEED) * RELEASE_FALLOFF, RELEASE_MIN_SCALE, 1.0)
+	var budget := maxf(RELEASE_MAX_SPEED - speed, 0.0)
+	if k.length() > budget:
+		k = k.normalized() * budget
+	return k
 
 
 ## Advance shot/rope/strand one tick. Returns the velocity change to add before move_and_slide.
@@ -187,6 +203,8 @@ func step(dt: float, mass: float, vel: Vector3, cam_fwd: Vector3, wish: Vector3,
 		if radial < 0.0:
 			dv += toward * -radial        # remove outward speed, keep the tangent motion
 		last_tension = maxf(mass * (last_ac + G * toward.y), 0.0)
+		if not on_floor:
+			dv += Vector3.DOWN * SWING_EXTRA_G * dt  # heavier arc: the bottom of the swing pulls harder
 		if not on_floor and vel.length() < MAX_SWING:
 			var tf := cam_fwd - toward * cam_fwd.dot(toward)   # camera forward, in the swing plane
 			if tf.length_squared() > 0.01:

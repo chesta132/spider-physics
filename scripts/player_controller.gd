@@ -167,7 +167,7 @@ func _web_input() -> void:
 
 
 func _launch_web(w, fwd: Vector3) -> void:
-	var kick: Vector3 = w.release(fwd)
+	var kick: Vector3 = w.release(fwd, velocity.length())
 	if kick != Vector3.ZERO:
 		velocity += kick
 

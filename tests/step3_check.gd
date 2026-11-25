@@ -69,7 +69,7 @@ func _initialize() -> void:
 
 	# 4. Release: momentum kept, strand falls, case recorded
 	var v_before: Vector3 = p.velocity
-	var kick: Vector3 = wl.release(fwd)
+	var kick: Vector3 = wl.release(fwd, v_before.length())
 	check("release detaches", wl.phase == wl.Phase.IDLE)
 	check("release returns a kick (%.1f m/s)" % kick.length(), kick.length() > 0.0)
 	check("release records case %s" % wl.last_case, wl.last_case == "A" or wl.last_case == "B")
@@ -85,6 +85,12 @@ func _initialize() -> void:
 	check("case A kick is stronger than case B (%.1f vs %.1f m/s)" % [ka.length(), kb.length()], ka.length() > kb.length() * 2.0)
 	check("case A pushes forward and up", ka.z < 0.0 and ka.y > 0.0)
 	check("case B lifts gently", kb.y > 0.0 and kb.length() < 4.0)
+	# Release scaling: fast swings get a smaller kick, and total speed is capped
+	var k_slow: Vector3 = wl.scaled_kick(true, fwd, 8.0)
+	var k_fast: Vector3 = wl.scaled_kick(true, fwd, 22.0)
+	check("kick shrinks as swing speed rises (%.1f at 8 m/s, %.1f at 22 m/s)" % [k_slow.length(), k_fast.length()], k_fast.length() < k_slow.length() * 0.7)
+	var total: float = (Vector3(0, 0, -22.0) + wl.scaled_kick(true, fwd, 22.0)).length()
+	check("total speed after release capped near %.0f m/s (got %.1f)" % [wl.RELEASE_MAX_SPEED, total], total <= wl.RELEASE_MAX_SPEED + 0.5)
 
 	# 6. Right web: mirror side
 	for i in 90:
