@@ -15,7 +15,7 @@ func check(label: String, ok: bool) -> void:
 
 ## Largest rotation of one bone seen over `frames` idle-process frames.
 func leg_peak(sk: Skeleton3D, frames: int) -> float:
-	var bone := sk.find_bone("Leg.L")
+	var bone := sk.find_bone("Thigh.L")
 	var peak := 0.0
 	for i in frames:
 		await process_frame
@@ -34,6 +34,12 @@ func _initialize() -> void:
 	var sk: Skeleton3D = p.get_node_or_null("Visual/Model/Rig/Skeleton")
 	check("AnimationPlayer under Player/Visual/Model/Rig", ap != null)
 	check("Skeleton under the same rig", sk != null)
+	if sk != null:
+		for b in ["Shoulder.L", "UpperArm.L", "Forearm.L", "Hand.L", "Thigh.L", "LowerLeg.L",
+			"Shoulder.R", "UpperArm.R", "Forearm.R", "Hand.R", "Thigh.R", "LowerLeg.R"]:
+			check("expanded bone %s" % b, sk.find_bone(b) >= 0)
+		check("upper arm starts at shoulder pivot (%.3f m)" % sk.get_bone_global_rest(sk.find_bone("UpperArm.L")).origin.distance_to(sk.get_bone_global_rest(sk.find_bone("Shoulder.L")).origin),
+			sk.get_bone_global_rest(sk.find_bone("UpperArm.L")).origin.distance_to(sk.get_bone_global_rest(sk.find_bone("Shoulder.L")).origin) < 0.001)
 	if ap == null or sk == null:
 		print("RESULT: cannot continue without the rig")
 		quit(1)

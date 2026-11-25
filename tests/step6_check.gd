@@ -242,7 +242,7 @@ func _initialize() -> void:
 			if not sk.get_bone_global_rest(i).basis.is_equal_approx(Basis()):
 				aligned = false
 		check("rig bones are axis-aligned at rest", aligned)
-		var arm := sk.find_bone("Arm.L")
+		var arm := sk.find_bone("UpperArm.L")
 		check("rig bones are marked (Arm.L present)", arm >= 0)
 		if arm >= 0:
 			# A playing clip owns the bone poses now, so quiet the mixer while poking one directly.
