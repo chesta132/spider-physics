@@ -245,6 +245,10 @@ func _initialize() -> void:
 		var arm := sk.find_bone("Arm.L")
 		check("rig bones are marked (Arm.L present)", arm >= 0)
 		if arm >= 0:
+			# A playing clip owns the bone poses now, so quiet the mixer while poking one directly.
+			var mixer: AnimationPlayer = model.find_child("AnimationPlayer", true, false) as AnimationPlayer
+			if mixer:
+				mixer.stop()
 			var before := _skinned_bounds(model, sk, p.global_position)
 			sk.set_bone_pose_rotation(arm, Quaternion(Vector3.RIGHT, -0.7))
 			await process_frame
@@ -254,6 +258,8 @@ func _initialize() -> void:
 			check("Arm.L about X swings the arm forward (dz +%.2f, dx %+.2f)" % [
 				after.size.z - before.size.z, after.size.x - before.size.x],
 				after.size.z > before.size.z + 0.05 and absf(after.size.x - before.size.x) < 0.1)
+			if mixer:
+				mixer.play("moves/idle")
 
 	# 5. F3 overlay and the state label survived the swap.
 	check("F3 physics HUD still present", p.get_node_or_null("PhysicsHUD") != null)

@@ -8,6 +8,7 @@ var _yaw := 0.0
 var _dist := 0.0
 var _pitch := 0.15
 var _up := 0.0
+var _hold := ""
 
 
 func _initialize() -> void:
@@ -24,6 +25,8 @@ func _initialize() -> void:
 		_pitch = float(args[4])
 	if args.size() > 5:
 		_up = float(args[5])
+	if args.size() > 6:
+		_hold = args[6]  # walk | run | walk_side | run_side: drive the character while shooting
 	get_root().add_child((load("res://scenes/main.tscn") as PackedScene).instantiate())
 
 
@@ -39,6 +42,10 @@ func _process(_d: float) -> bool:
 			pivot.set("pitch", _pitch)
 			if _dist > 0.0:
 				(pivot.get_node("Pitch/Arm") as SpringArm3D).spring_length = _dist
+	if _f == 4 and _hold != "":
+		Input.action_press("move_right" if _hold.ends_with("side") else "move_forward")
+		if _hold.begins_with("run"):
+			Input.action_press("sprint")
 	if _f < _frames:
 		return false
 	var img := get_root().get_texture().get_image()

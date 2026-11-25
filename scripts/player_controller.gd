@@ -49,6 +49,8 @@ const WALL_REATTACH_CD := 0.12  # s, no re-grabbing the wall just jumped off
 const WALL_TURN_RATE := 14.0  # 1/s, visual turn while on a wall (smooth around corners)
 const WALL_ATTACH_SPEED := 3.0  # m/s, grounded attach needs at least this much horizontal speed
 const FLY_SPEED := 14.0      # m/s, dev noclip only
+const ANIM_FADE := 0.18      # s, crossfade between the grounded clips (idle/walk/run)
+const ANIM_RATE := 0.9       # clip seconds per second at walk speed; scaled by actual ground speed
 
 var state := State.IDLE
 var grounded := false
@@ -96,6 +98,7 @@ var drag_loss := 0.0         # J, energy removed by air drag since takeoff
 var _shown := -1
 
 @onready var visual: Node3D = $Visual
+@onready var anim: AnimationPlayer = visual.get_node_or_null("Model/Rig/AnimationPlayer")  # null if the model is swapped
 @onready var web_l = $WebLeft
 @onready var web_r = $WebRight
 @onready var zip_node = $Zip
@@ -139,6 +142,7 @@ func _physics_process(dt: float) -> void:
 		_walk(dt)
 	_set_state(_refine_state(state_for(fly, grounded, velocity.y, wish.length_squared() > 0.01, sprint)))
 	_turn_visual(dt)
+	_update_anim(dt)
 
 
 func _walk(dt: float) -> void:
@@ -573,12 +577,36 @@ func _set_state(s: State) -> void:
 	if s == _shown:
 		return
 	_shown = s
+	_play_ground_clip(s)
 	state_label.modulate = STATE_COLORS[s]
 	var body := visual.get_node_or_null("Body") as MeshInstance3D  # absent with a real model
 	if body:
 		var mat := StandardMaterial3D.new()
 		mat.albedo_color = STATE_COLORS[s]
 		body.material_override = mat
+
+
+## idle/walk/run only; every other state leaves the last grounded clip running through its
+## crossfade. The clips live in the rig's "moves" library (tools/normalize_rig.gd builds them).
+func _play_ground_clip(s: State) -> void:
+	if anim == null:
+		return
+	var clip := ""
+	match s:
+		State.IDLE: clip = "idle"
+		State.WALK: clip = "walk"
+		State.RUN: clip = "run"
+		_:
+			return
+	if anim.has_animation("moves/" + clip):
+		anim.play("moves/" + clip, ANIM_FADE)
+
+
+## Playback follows real ground speed, so 5 m/s reads as a walk and 9 m/s as a run.
+func _update_anim(_dt: float) -> void:
+	if anim == null:
+		return
+	anim.speed_scale = clampf(ANIM_RATE * Vector2(velocity.x, velocity.z).length() / WALK_SPEED, 0.8, 1.4)
 
 
 func _camera_relative_wish() -> Vector3:
