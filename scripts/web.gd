@@ -1,5 +1,6 @@
 extends Node3D
 const Layers := preload("res://scripts/layers.gd")  # collision layer bits
+const Hands := preload("res://scripts/hands.gd")  # hand sockets, shared with every web action
 ## One web per hand. Fixed-length pendulum, solved in two places:
 ##  - step(): before integration, remove outward radial speed while taut and add tangential drive.
 ##  - project(): after move_and_slide, put the body back on the rope sphere, so the rope never
@@ -55,6 +56,7 @@ var strand_anchor := Vector3.ZERO
 var strand_tip := Vector3.ZERO
 var strand_vel := Vector3.ZERO
 
+var _hands: Hands
 var _line: MeshInstance3D
 var _strand: MeshInstance3D
 var _strand_mat: StandardMaterial3D
@@ -62,6 +64,7 @@ var _mark: MeshInstance3D
 
 
 func _ready() -> void:
+	_hands = Hands.new(get_parent() as Node3D)  # strands start at this hand's bone
 	var m := StandardMaterial3D.new()
 	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	m.albedo_color = Color(0.92, 0.95, 1.0)
@@ -139,8 +142,8 @@ func fire(cam: Camera3D, body_rid: RID) -> bool:
 	if best_sc == -1e9:
 		return false
 	anchor = best
-	shoot_from = origin
-	tip = origin
+	shoot_from = _hands.point(side)  # line leaves the hand, not the body centre
+	tip = shoot_from
 	shoot_t = 0.0
 	phase = Phase.SHOOT
 	return true
@@ -154,7 +157,7 @@ func release(cam_fwd: Vector3, speed: float) -> Vector3:
 		last_case = "A" if ahead else "B"
 		kick = scaled_kick(ahead, cam_fwd, speed)
 		strand_anchor = anchor
-		strand_tip = global_position + Vector3(0, 1.4, 0)
+		strand_tip = _hands.point(side)
 		strand_vel = Vector3.ZERO
 		strand_t = STRAND_TIME
 	phase = Phase.IDLE
@@ -263,7 +266,7 @@ func _strand_step(dt: float) -> void:
 
 func _process(delta: float) -> void:
 	_strand_step(delta)  # keeps falling after the web is gone
-	var hand := global_position + Vector3(0, 1.4, 0)
+	var hand := _hands.point(side)  # follows the rig's Hand.L / Hand.R every frame
 	match phase:
 		Phase.SHOOT:
 			_seg(_line, hand, tip)

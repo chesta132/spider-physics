@@ -52,6 +52,11 @@ const FLY_SPEED := 14.0      # m/s, dev noclip only
 const ANIM_FADE := 0.18      # s, crossfade between the grounded clips (idle/walk/run)
 const ANIM_SNAP := 0.10      # s, faster blend into the held jump / landing poses
 const ANIM_RATE := 0.9       # clip seconds per second at walk speed; scaled by actual ground speed
+const LEAN_PITCH := 35.0     # deg, biggest torso pitch toward the web anchor
+const LEAN_BANK := 25.0      # deg, biggest roll into the swing arc
+const LEAN_IN := 6.0         # 1/s, blend into the web lean
+const LEAN_OUT := 4.0        # 1/s, blend back upright
+const LEAN_PIVOT := 0.95     # m, the body leans around the hips, not the feet
 
 var state := State.IDLE
 var grounded := false
@@ -95,6 +100,8 @@ var diving := false
 var fast := false
 var air_peak := 0.0          # m, highest point since leaving the ground
 var drag_loss := 0.0         # J, energy removed by air drag since takeoff
+var lean_pitch := 0.0        # rad, cosmetic torso pitch toward the web (0 = upright)
+var lean_roll := 0.0         # rad, cosmetic bank into the swing arc
 
 var _shown := -1
 var _landing_crack: MeshInstance3D
@@ -103,6 +110,7 @@ var _crack_released := false
 const CRACK_LIFE := 1.6
 
 @onready var visual: Node3D = $Visual
+@onready var model: Node3D = visual.get_node_or_null("Model")  # null if the model is swapped
 @onready var anim: AnimationPlayer = visual.get_node_or_null("Model/Rig/AnimationPlayer")  # null if the model is swapped
 @onready var web_l = $WebLeft
 @onready var web_r = $WebRight
@@ -147,6 +155,7 @@ func _physics_process(dt: float) -> void:
 		_walk(dt)
 	_set_state(_refine_state(state_for(fly, grounded, velocity.y, wish.length_squared() > 0.01, sprint)))
 	_turn_visual(dt)
+	_web_lean(dt)
 	_update_anim(dt)
 	_update_landing_crack(dt)
 
@@ -570,6 +579,50 @@ func _turn_visual(dt: float) -> void:
 		return
 	target = atan2(h.x, h.z)  # Visual local +Z faces the direction of travel
 	visual.rotation.y = lerp_angle(visual.rotation.y, target, clampf(TURN_RATE * dt, 0.0, 1.0))
+
+
+## Cosmetic only: lean the body along the live web, so a swing pitches toward the anchor and
+## banks into the arc instead of standing upright. Physics never reads it.
+func _web_lean(dt: float) -> void:
+	if model == null:
+		return
+	var to := _web_aim()
+	var on := to.length_squared() > 0.04
+	var want_pitch := 0.0
+	var want_roll := 0.0
+	if on:
+		to = to.normalized()
+		var vb := visual.global_transform.basis  # yaw only: +Z is the direction of travel
+		var fwd := to.dot(vb.z)
+		var lat := to.dot(vb.x)
+		want_pitch = clampf(atan2(to.y, maxf(fwd, 0.15)), -deg_to_rad(LEAN_PITCH), deg_to_rad(LEAN_PITCH))
+		want_roll = -clampf(atan2(lat, maxf(absf(fwd), 0.15)), -deg_to_rad(LEAN_BANK), deg_to_rad(LEAN_BANK))
+	var k := 1.0 - exp(-(LEAN_IN if on else LEAN_OUT) * dt)
+	lean_pitch = lerpf(lean_pitch, want_pitch, k)
+	lean_roll = lerpf(lean_roll, want_roll, k)
+	if absf(lean_pitch) < 0.002 and absf(lean_roll) < 0.002:
+		model.transform = Transform3D.IDENTITY  # exactly upright when no web is up
+		return
+	var b := Basis.from_euler(Vector3(lean_pitch, 0.0, lean_roll))
+	var pivot := Vector3(0.0, LEAN_PIVOT, 0.0)
+	model.transform = Transform3D(b, pivot - b * pivot)
+
+
+## Body -> live web anchor (both hands averaged), or the zip target; zero when neither is up.
+func _web_aim() -> Vector3:
+	var sum := Vector3.ZERO
+	var n := 0
+	if web_l.phase != web_l.Phase.IDLE:
+		sum += web_l.anchor - global_position
+		n += 1
+	if web_r.phase != web_r.Phase.IDLE:
+		sum += web_r.anchor - global_position
+		n += 1
+	if n > 0:
+		return sum / float(n)
+	if zip_node.phase != zip_node.Phase.IDLE:
+		return zip_node.target - global_position
+	return Vector3.ZERO
 
 
 func _set_state(s: State) -> void:

@@ -1,5 +1,6 @@
 extends Node3D
 const Layers := preload("res://scripts/layers.gd")  # collision layer bits
+const Hands := preload("res://scripts/hands.gd")  # hand sockets, shared with the swing webs
 ## Zip to point, two modes:
 ##  - Perch: a rooftop edge / outer corner is under the reticle, so Ctrl zips the body onto it and
 ##    the controller settles into Watching.
@@ -61,6 +62,7 @@ var strand_anchor := Vector3.ZERO
 var strand_tip := Vector3.ZERO
 var strand_vel := Vector3.ZERO
 
+var _hands: Hands
 var _line: MeshInstance3D
 var _strand: MeshInstance3D
 var _strand_mat: StandardMaterial3D
@@ -69,6 +71,7 @@ var _body_rid: RID
 
 
 func _ready() -> void:
+	_hands = Hands.new(get_parent() as Node3D)
 	_body_rid = (get_parent() as CharacterBody3D).get_rid()  # so the perch hint works before the first zip
 	var m := StandardMaterial3D.new()
 	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
@@ -222,7 +225,7 @@ func start_perch(cam: Camera3D, body_rid: RID, body_pos: Vector3, body_vel: Vect
 	mode = "perch"
 	target = perch
 	target_normal = Vector3.UP
-	shoot_from = body_pos + Vector3(0, 1.4, 0)
+	shoot_from = _hands.point(1.0)  # the zip strand leaves the right hand
 	tip = shoot_from
 	shoot_t = 0.0
 	start_pos = body_pos
@@ -257,7 +260,7 @@ func start_surface_boost(cam: Camera3D, body_rid: RID, body_pos: Vector3, body_v
 	target = flat
 	target_normal = hit["normal"]
 	boost_t = BOOST_TIME
-	shoot_from = body_pos + Vector3(0, 1.4, 0)
+	shoot_from = _hands.point(1.0)
 	tip = shoot_from
 	shoot_t = 0.0
 	start_pos = body_pos
@@ -363,7 +366,7 @@ func _strand_step(dt: float) -> void:
 
 func _process(delta: float) -> void:
 	_strand_step(delta)  # keeps falling after the web is gone
-	var hand := global_position + Vector3(0, 1.4, 0)
+	var hand := _hands.point(1.0)  # follows the rig's Hand.R every frame
 	match phase:
 		Phase.SHOOT:
 			_seg(_line, hand, tip)
