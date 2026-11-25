@@ -31,6 +31,7 @@ const RELEASE_REF_SPEED := 10.0        # m/s, at or below this the kick is full 
 const RELEASE_FALLOFF := 0.08          # kick scale lost per m/s above the reference
 const RELEASE_MIN_SCALE := 0.4         # never scale the kick below 40%
 const RELEASE_MAX_SPEED := 24.0        # m/s, total speed cap after the kick
+const STRAND_FADE := 0.6                # s, alpha fade at the end of the strand life
 const STRAND_TIME := 2.0                # s, falling strand lifetime after release
 const STRAND_DRAG := 0.4                # 1/s
 
@@ -55,6 +56,7 @@ var strand_vel := Vector3.ZERO
 
 var _line: MeshInstance3D
 var _strand: MeshInstance3D
+var _strand_mat: StandardMaterial3D
 var _mark: MeshInstance3D
 
 
@@ -65,12 +67,20 @@ func _ready() -> void:
 	var box := BoxMesh.new()
 	box.size = Vector3(0.05, 0.05, 1.0)
 	box.material = m
+	var sm := StandardMaterial3D.new()
+	sm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	sm.albedo_color = Color(0.92, 0.95, 1.0)
+	sm.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	var sbox := BoxMesh.new()
+	sbox.size = Vector3(0.05, 0.05, 1.0)
+	sbox.material = sm
+	_strand_mat = sm
 	var ball := SphereMesh.new()
 	ball.radius = 0.14
 	ball.height = 0.28
 	ball.material = m
 	_line = _make(box)
-	_strand = _make(box)
+	_strand = _make(sbox)  # own material so it can fade
 	_mark = _make(ball)
 	_line.visible = false
 	_strand.visible = false
@@ -172,7 +182,6 @@ static func scaled_kick(ahead: bool, fwd: Vector3, speed: float) -> Vector3:
 
 ## Advance shot/rope/strand one tick. Returns the velocity change to add before move_and_slide.
 func step(dt: float, mass: float, vel: Vector3, cam_fwd: Vector3, wish: Vector3, on_floor: bool) -> Vector3:
-	_strand_step(dt)
 	if phase == Phase.SHOOT:
 		shoot_t += dt
 		var f := minf(shoot_t / SHOOT_TIME, 1.0)
@@ -248,9 +257,11 @@ func _strand_step(dt: float) -> void:
 	strand_vel *= maxf(1.0 - STRAND_DRAG * dt, 0.0)
 	strand_tip += strand_vel * dt
 	strand_tip.y = maxf(strand_tip.y, 0.05)
+	_strand_mat.albedo_color.a = clampf(strand_t / STRAND_FADE, 0.0, 1.0)  # timed fade out
 
 
-func _process(_delta: float) -> void:
+func _process(delta: float) -> void:
+	_strand_step(delta)  # keeps falling after the web is gone
 	var hand := global_position + Vector3(0, 1.4, 0)
 	match phase:
 		Phase.SHOOT:

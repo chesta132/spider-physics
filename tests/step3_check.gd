@@ -49,8 +49,14 @@ func _initialize() -> void:
 	var top := -1e9
 	var vmax := 0.0
 	var air := 0
+	var saw_up := false
+	var saw_down := false
 	for i in 360:
 		await physics_frame
+		if p.state == p.State.SWING_UP:
+			saw_up = true
+		if p.state == p.State.SWING_DOWN:
+			saw_down = true
 		top = maxf(top, p.global_position.y)
 		vmax = maxf(vmax, p.velocity.length())
 		if not p.grounded:
@@ -66,6 +72,8 @@ func _initialize() -> void:
 	check("swing gains height (peak %.2f m)" % top, top > 3.0)
 	check("swing reaches real speed (%.2f m/s)" % vmax, vmax > 8.0)
 	check("tension reported while taut (%.0f N)" % wl.last_tension, wl.last_tension > 0.0)
+	check("swing rises in SWING UP", saw_up)
+	check("swing falls in SWING DOWN", saw_down)
 
 	# 4. Release: momentum kept, strand falls, case recorded
 	var v_before: Vector3 = p.velocity

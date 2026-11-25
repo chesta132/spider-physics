@@ -5,13 +5,14 @@ extends CharacterBody3D
 ## move_and_slide resolves contacts. Godot's solver owns the touchdown; this script only reads it.
 ## Child "Visual" is cosmetic only; its "Body" mesh is recolored per state.
 
-enum State { IDLE, WALK, RUN, JUMP, FALL, FLY, CHARGE, SUPER, DIVE, FAST_DIVE, LAND, ZIP, WATCHING }
-const STATE_NAMES := ["IDLE", "WALK", "RUN", "JUMP", "FALL", "DEV-FLY", "CHARGE", "SUPER JUMP", "DIVE", "FAST DIVE", "LAND", "ZIP", "WATCHING"]
+enum State { IDLE, WALK, RUN, JUMP, FALL, FLY, CHARGE, SUPER, DIVE, FAST_DIVE, LAND, ZIP, WATCHING, SWING_UP, SWING_DOWN }
+const STATE_NAMES := ["IDLE", "WALK", "RUN", "JUMP", "FALL", "DEV-FLY", "CHARGE", "SUPER JUMP", "DIVE", "FAST DIVE", "LAND", "ZIP", "WATCHING", "SWING UP", "SWING DOWN"]
 const STATE_COLORS := [
 	Color(0.6, 0.6, 0.6), Color(0.2, 0.8, 0.3), Color(1.0, 0.55, 0.0),
 	Color(0.2, 0.8, 1.0), Color(0.9, 0.2, 0.8), Color(1.0, 1.0, 1.0),
 	Color(1.0, 0.9, 0.1), Color(0.6, 0.1, 1.0), Color(0.1, 0.3, 1.0),
 	Color(1.0, 0.1, 0.1), Color(0.5, 0.3, 0.1), Color(0.0, 0.95, 0.85), Color(0.55, 0.35, 0.95),
+	Color(0.35, 0.8, 1.0), Color(0.1, 0.35, 0.9),
 ]
 
 const MASS := 70.0           # kg
@@ -34,6 +35,7 @@ const DIVE_STEER := 3.0      # m/s^2, normal dive steering
 const DIVE_STEER_FAST := 1.0 # m/s^2, fast dive steering
 const LAND_DROP := 3.0       # m, a fall this far below the air peak counts as a heavy landing
 const TURN_RATE := 12.0      # 1/s, visual turn smoothing
+const SWING_VY := 1.5        # m/s, |velocity.y| above this splits the swing into up/down states
 const FLY_SPEED := 14.0      # m/s, dev noclip only
 
 var state := State.IDLE
@@ -300,6 +302,15 @@ func _refine_state(s: State) -> State:
 		return State.WATCHING
 	if zip_node.phase != zip_node.Phase.IDLE:
 		return State.ZIP
+	if not grounded and _web_on():
+		# Swing sub-states for future up/down animations. Dead zone holds the last one: no flicker.
+		if velocity.y > SWING_VY:
+			return State.SWING_UP
+		if velocity.y < -SWING_VY:
+			return State.SWING_DOWN
+		if state == State.SWING_UP or state == State.SWING_DOWN:
+			return state
+		return State.SWING_UP
 	if grounded and landing:
 		return State.LAND
 	if charging:

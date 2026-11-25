@@ -83,6 +83,17 @@ func _initialize() -> void:
 	check("zip entered the ZIP state", saw_zip)
 	check("zip settles into WATCHING", reached)
 	check("watching on the perch point (y=%.2f)" % p.global_position.y, absf(p.global_position.y - 12.0) < 0.4)
+	# The zip web must fall and fade like a normal web strand, not freeze on arrival
+	var sy0: float = z.strand_tip.y
+	for i in 30:
+		await physics_frame
+	check("zip strand keeps falling after arrival (%.2f m)" % (sy0 - z.strand_tip.y), z.strand_tip.y < sy0 - 0.2)
+	for i in 60:
+		await physics_frame
+	check("zip strand fades near the end (alpha %.2f)" % z._strand_mat.albedo_color.a, z._strand_mat.albedo_color.a < 0.95)
+	for i in 60:
+		await physics_frame
+	check("zip strand despawns after its lifetime", z.strand_t <= 0.0 and not z._strand.visible)
 	var hold: Vector3 = p.global_position
 	for i in 90:
 		await physics_frame

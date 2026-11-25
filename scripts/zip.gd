@@ -16,6 +16,7 @@ const ZIP_SPEED := 26.0                 # m/s, pull speed along the path
 const ARRIVE_DIST := 1.7                # m, arrival radius
 const VAULT_FWD := 6.0                  # m/s, Space near arrival: forward
 const VAULT_UP := 7.5                   # m/s, Space near arrival: up
+const STRAND_FADE := 0.6                # s, alpha fade at the end of the strand life
 const STRAND_TIME := 2.0                # s, released strand lifetime
 const STRAND_DRAG := 0.4                # 1/s
 
@@ -61,6 +62,7 @@ var strand_vel := Vector3.ZERO
 
 var _line: MeshInstance3D
 var _strand: MeshInstance3D
+var _strand_mat: StandardMaterial3D
 var _reticle: MeshInstance3D
 var _body_rid: RID
 
@@ -73,6 +75,14 @@ func _ready() -> void:
 	var box := BoxMesh.new()
 	box.size = Vector3(0.05, 0.05, 1.0)
 	box.material = m
+	var sm := StandardMaterial3D.new()
+	sm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	sm.albedo_color = Color(0.92, 0.95, 1.0)
+	sm.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	var sbox := BoxMesh.new()
+	sbox.size = Vector3(0.05, 0.05, 1.0)
+	sbox.material = sm
+	_strand_mat = sm
 	var ring := TorusMesh.new()
 	ring.inner_radius = 0.3
 	ring.outer_radius = 0.42
@@ -81,7 +91,7 @@ func _ready() -> void:
 	rm.albedo_color = Color(0.2, 1.0, 0.9)
 	ring.material = rm
 	_line = _make(box)
-	_strand = _make(box)
+	_strand = _make(sbox)  # own material so it can fade
 	_reticle = _make(ring)
 	_line.visible = false
 	_strand.visible = false
@@ -260,7 +270,6 @@ func start_surface_boost(cam: Camera3D, body_rid: RID, body_pos: Vector3, body_v
 
 ## Advance the zip. Returns "pull", "perched", "vault", "boosted" or "idle".
 func step(dt: float, body: CharacterBody3D, mass: float, vault: bool) -> String:
-	_strand_step(dt)
 	if phase == Phase.SHOOT:
 		shoot_t += dt
 		var f := minf(shoot_t / SHOOT_TIME, 1.0)
@@ -348,9 +357,11 @@ func _strand_step(dt: float) -> void:
 	strand_vel *= maxf(1.0 - STRAND_DRAG * dt, 0.0)
 	strand_tip += strand_vel * dt
 	strand_tip.y = maxf(strand_tip.y, 0.05)
+	_strand_mat.albedo_color.a = clampf(strand_t / STRAND_FADE, 0.0, 1.0)  # timed fade out
 
 
-func _process(_delta: float) -> void:
+func _process(delta: float) -> void:
+	_strand_step(delta)  # keeps falling after the web is gone
 	var hand := global_position + Vector3(0, 1.4, 0)
 	match phase:
 		Phase.SHOOT:
