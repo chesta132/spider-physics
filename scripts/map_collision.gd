@@ -1,4 +1,5 @@
 extends Node3D
+const Layers := preload("res://scripts/layers.gd")  # collision layer bits
 ## Bakes collision for a visual-only map (Sketchfab rips ship no physics).
 ## One StaticBody3D + ConcavePolygonShape3D per MeshInstance3D, in mesh-local space, so the shape
 ## inherits whatever scale/rotation the import chain applies — no vertex-space maths.
@@ -7,8 +8,6 @@ extends Node3D
 ## drag the body into the building. Correcting here fixes every raycast user at once
 ## (wall attach, corner wrap, zip perch, web anchor).
 ## ponytail: baked at load. Pre-bake to a .res if load time or draw setup ever hurts.
-
-const LAYER := 1  # everything gameplay raycasts look at (player mask, spring arm mask)
 
 var _flipped := 0
 var _no_normals := 0
@@ -30,7 +29,7 @@ func _ready() -> void:
 		var cs := CollisionShape3D.new()
 		cs.shape = shape
 		var body := StaticBody3D.new()
-		body.collision_layer = LAYER
+		body.collision_layer = Layers.WORLD
 		body.collision_mask = 0
 		body.add_child(cs)
 		mi.add_child(body)

@@ -1,4 +1,5 @@
 extends Node3D
+const Layers := preload("res://scripts/layers.gd")  # collision layer bits
 ## Wall crawl / run on a vertical face.
 ## Attach: a short probe finds a wall in reach and the player is moving into it.
 ## Movement: W = up the wall, S = down, A/D = sideways along it, mapped to the wall frame so
@@ -56,7 +57,7 @@ func probe(body: CharacterBody3D, cam_right: Vector3) -> bool:
 	if hv.length() > 0.5:
 		dirs.append(hv.normalized())
 	for d in dirs:
-		var q := PhysicsRayQueryParameters3D.create(from, from + d * REACH)
+		var q := Layers.ray(from, from + d * REACH)
 		q.exclude = [body.get_rid()]
 		var hit := space.intersect_ray(q)
 		if hit.is_empty():
@@ -97,7 +98,7 @@ func _radius(body: CharacterBody3D) -> float:
 func contact_dist(body: CharacterBody3D) -> float:
 	var space := body.get_world_3d().direct_space_state
 	var from := body.global_position + Vector3.UP * 0.9
-	var q := PhysicsRayQueryParameters3D.create(from, from - normal * (REACH + 0.5))
+	var q := Layers.ray(from, from - normal * (REACH + 0.5))
 	q.exclude = [body.get_rid()]
 	var hit := space.intersect_ray(q)
 	if hit.is_empty():
@@ -132,7 +133,7 @@ func wrap(body: CharacterBody3D, cam_right: Vector3) -> Vector3:
 		var from := base + right * side * 0.6 - normal * (rest_gap + 0.25)
 		for ang in [0.0, 45.0, -45.0, 90.0, -90.0]:
 			var d := (-normal).rotated(Vector3.UP, deg_to_rad(ang))
-			var q := PhysicsRayQueryParameters3D.create(from, from + d * REACH)
+			var q := Layers.ray(from, from + d * REACH)
 			q.exclude = [body.get_rid()]
 			var hit := space.intersect_ray(q)
 			if hit.is_empty():
@@ -183,12 +184,12 @@ func step(dt: float, body: CharacterBody3D, inp: Vector2, mass: float, jump: boo
 func top_edge(body: CharacterBody3D) -> Vector3:
 	var space := body.get_world_3d().direct_space_state
 	var head := body.global_position + Vector3.UP * 1.8
-	var q := PhysicsRayQueryParameters3D.create(head, head - normal * 1.2)
+	var q := Layers.ray(head, head - normal * 1.2)
 	q.exclude = [body.get_rid()]
 	if not space.intersect_ray(q).is_empty():
 		return Vector3.INF  # wall continues above the head
 	var from := head + Vector3.UP * 0.5 - normal * 0.9
-	var d := PhysicsRayQueryParameters3D.create(from, from + Vector3.DOWN * EDGE_PROBE)
+	var d := Layers.ray(from, from + Vector3.DOWN * EDGE_PROBE)
 	d.exclude = [body.get_rid()]
 	var hit := space.intersect_ray(d)
 	if hit.is_empty() or (hit["normal"] as Vector3).y < 0.6:

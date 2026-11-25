@@ -1,4 +1,5 @@
 extends Node3D
+const Layers := preload("res://scripts/layers.gd")  # collision layer bits
 ## One web per hand. Fixed-length pendulum, solved in two places:
 ##  - step(): before integration, remove outward radial speed while taut and add tangential drive.
 ##  - project(): after move_and_slide, put the body back on the rope sphere, so the rope never
@@ -112,7 +113,7 @@ func fire(cam: Camera3D, body_rid: RID) -> bool:
 			var pitch := deg_to_rad(pd)
 			var h := fwd * cos(yaw) + right * sin(yaw)
 			var dir := (h * cos(pitch) + Vector3.UP * sin(pitch)).normalized()
-			var q := PhysicsRayQueryParameters3D.create(origin, origin + dir * RANGE)
+			var q := Layers.ray(origin, origin + dir * RANGE)
 			q.exclude = [body_rid]
 			var hit := get_world_3d().direct_space_state.intersect_ray(q)
 			if hit.is_empty():

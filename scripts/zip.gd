@@ -1,4 +1,5 @@
 extends Node3D
+const Layers := preload("res://scripts/layers.gd")  # collision layer bits
 ## Zip to point, two modes:
 ##  - Perch: a rooftop edge / outer corner is under the reticle, so Ctrl zips the body onto it and
 ##    the controller settles into Watching.
@@ -119,7 +120,7 @@ func find_perch(cam: Camera3D, body_rid: RID) -> bool:
 	for ix in range(-1, 2):
 		for iy in range(-1, 2):
 			var dir: Vector3 = (fwd + b.x * (ix * AIM_FAN) + b.y * (iy * AIM_FAN)).normalized()
-			var q := PhysicsRayQueryParameters3D.create(origin, origin + dir * RANGE)
+			var q := Layers.ray(origin, origin + dir * RANGE)
 			q.exclude = [body_rid]
 			var hit := space.intersect_ray(q)
 			if hit.is_empty():
@@ -162,7 +163,7 @@ func _visible(origin: Vector3, p: Vector3, body_rid: RID) -> bool:
 	if dist < 0.001:
 		return true
 	dir /= dist
-	var q := PhysicsRayQueryParameters3D.create(origin, p - dir * LOS_STOP)
+	var q := Layers.ray(origin, p - dir * LOS_STOP)
 	q.exclude = [body_rid]
 	var hit := get_world_3d().direct_space_state.intersect_ray(q)
 	if hit.is_empty():
@@ -174,7 +175,7 @@ func _visible(origin: Vector3, p: Vector3, body_rid: RID) -> bool:
 func _top_above(p: Vector3, n: Vector3, body_rid: RID) -> Vector3:
 	var space := get_world_3d().direct_space_state
 	var inside := p - n * 0.2
-	var q := PhysicsRayQueryParameters3D.create(inside + Vector3.UP * 40.0, inside + Vector3.DOWN * 0.5)
+	var q := Layers.ray(inside + Vector3.UP * 40.0, inside + Vector3.DOWN * 0.5)
 	q.exclude = [body_rid]
 	var hit := space.intersect_ray(q)
 	if hit.is_empty():
@@ -190,7 +191,7 @@ func _edge_outward(p: Vector3, n: Vector3, body_rid: RID) -> Vector3:
 	var t2 := n.cross(t1)
 	for dir in [t1, -t1, t2, -t2]:
 		var from: Vector3 = p + dir * PERCH_EDGE_PROBE + n * 0.05
-		var q := PhysicsRayQueryParameters3D.create(from, from + Vector3.DOWN * 2.0)
+		var q := Layers.ray(from, from + Vector3.DOWN * 2.0)
 		q.exclude = [body_rid]
 		var hit := get_world_3d().direct_space_state.intersect_ray(q)
 		if hit.is_empty() or (hit["position"] as Vector3).y < p.y - PERCH_EDGE_DROP:
@@ -206,7 +207,7 @@ func _is_edge(p: Vector3, n: Vector3, body_rid: RID) -> bool:
 	var t2 := n.cross(t1)
 	for dir in [t1, -t1, t2, -t2]:
 		var from: Vector3 = p + dir * PERCH_EDGE_PROBE + n * 0.05
-		var q := PhysicsRayQueryParameters3D.create(from, from + Vector3.DOWN * 2.0)
+		var q := Layers.ray(from, from + Vector3.DOWN * 2.0)
 		q.exclude = [body_rid]
 		var hit := space.intersect_ray(q)
 		if hit.is_empty() or (hit["position"] as Vector3).y < p.y - PERCH_EDGE_DROP:
@@ -238,7 +239,7 @@ func start_perch(cam: Camera3D, body_rid: RID, body_pos: Vector3, body_vel: Vect
 func start_surface_boost(cam: Camera3D, body_rid: RID, body_pos: Vector3, body_vel: Vector3) -> bool:
 	var origin := cam.global_position
 	var dir := -cam.global_transform.basis.z
-	var q := PhysicsRayQueryParameters3D.create(origin, origin + dir * RANGE)
+	var q := Layers.ray(origin, origin + dir * RANGE)
 	q.exclude = [body_rid]
 	var hit := get_world_3d().direct_space_state.intersect_ray(q)
 	if hit.is_empty():

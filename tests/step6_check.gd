@@ -1,4 +1,5 @@
 extends SceneTree
+const Layers := preload("res://scripts/layers.gd")  # collision layer bits
 ## Step 6 checks: the real city map and the rigged player model are wired in and still playable.
 ## Verifies baked collision exists, the player spawns on a street, wall crawl attaches to a real
 ## building with an outward normal, perch hints appear on real rooftops, and the model is fitted
@@ -38,6 +39,64 @@ func _initialize() -> void:
 	var gh: Dictionary = p.get_world_3d().direct_space_state.intersect_ray(down)
 	check("street surface is a real collider (normal.y %.2f)" % [gh.get("normal", Vector3.ZERO).y],
 		not gh.is_empty() and (gh["normal"] as Vector3).y > 0.8)
+
+	# 1b. World boundary: a shell the player hits, that no gameplay ray can see.
+	var sp := p.get_world_3d().direct_space_state
+	var bnd: Node3D = map.get_node("WorldBoundary")
+	var shells: Array = []
+	for c in bnd.get_children():
+		if c is StaticBody3D:
+			shells.append(c)
+	check("boundary shell built (%d boxes)" % shells.size(), shells.size() >= 5)
+	check("boundary sits on its own layer",
+		not shells.is_empty() and (shells[0] as StaticBody3D).collision_layer == Layers.BOUNDARY)
+	check("player collides with the boundary (mask %d)" % p.collision_mask,
+		(p.collision_mask & Layers.BOUNDARY) != 0)
+
+	# The shell must enclose the map: four rays from above the city hit it in every direction,
+	# while a gameplay ray (WORLD mask) passes straight through.
+	var high := Vector3(0, 170, 0)  # above the tallest building (150 m), below the shell top
+	var enclosed := 0
+	var leaked := 0
+	for d in [Vector3.RIGHT, Vector3.LEFT, Vector3.FORWARD, Vector3.BACK]:
+		var all_hit: Dictionary = sp.intersect_ray(PhysicsRayQueryParameters3D.create(high, high + d * 1500.0))
+		if not all_hit.is_empty() and (all_hit["collider"] as CollisionObject3D).collision_layer == Layers.BOUNDARY:
+			enclosed += 1
+		var world_hit: Dictionary = sp.intersect_ray(Layers.ray(high, high + d * 1500.0))
+		if not world_hit.is_empty() and (world_hit["collider"] as CollisionObject3D).collision_layer == Layers.BOUNDARY:
+			leaked += 1
+	check("boundary encloses the map on all four sides (%d/4)" % enclosed, enclosed == 4)
+	check("no gameplay ray can see the boundary (%d/4 leaked)" % leaked, leaked == 0)
+
+	# Standing outside the shell, aimed straight at it: web and zip must find nothing.
+	var wall_c: Vector3 = (shells[0] as StaticBody3D).global_position
+	var x0: float = wall_c.x - 13.0
+	p.global_position = Vector3(x0, 4.0, wall_c.z)
+	p.velocity = Vector3.ZERO
+	var pivot_b: Node3D = p.get_node("Pivot")
+	pivot_b.set("yaw", -PI * 0.5)  # camera forward = +X, straight at the shell
+	pivot_b.set("pitch", 0.0)
+	for i in 4:
+		await process_frame
+	var cam_b: Camera3D = p.get_node("Pivot/Pitch/Arm/Camera")
+	var wl: Node3D = p.get_node("WebLeft")
+	var zn: Node3D = p.get_node("Zip")
+	check("web refuses to anchor to the boundary", not wl.fire(cam_b, p.get_rid()))
+	check("zip refuses to boost off the boundary",
+		not zn.start_surface_boost(cam_b, p.get_rid(), p.global_position, p.velocity))
+
+	# Drive into the shell: the body must stop at it, not cross it.
+	p.velocity = Vector3(25.0, 0, 0)
+	for i in 90:
+		await physics_frame
+	check("the boundary stops a body crossing it (x %.1f, shell face %.1f)" % [
+		p.global_position.x, wall_c.x - 2.0],
+		p.global_position.x > x0 + 5.0 and p.global_position.x < wall_c.x - 1.5)
+
+	p.global_position = Vector3(0, 0.05, 0)  # back to the spawn for the wall-crawl checks
+	p.velocity = Vector3.ZERO
+	for i in 20:
+		await physics_frame
 
 	# 2. Wall crawl on a real building: pick the nearest vertical face and walk into it.
 	var space := p.get_world_3d().direct_space_state
