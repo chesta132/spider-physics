@@ -204,8 +204,8 @@ func _zip_start() -> void:
 	landing = false
 	if zip_node.start_perch(cam_ref, get_rid(), global_position, velocity):
 		last_event = "Zip to perch"
-	elif zip_node.start_boost(_flat_forward(), global_position, velocity):
-		last_event = "Web-zip boost"
+	elif zip_node.start_dash(_flat_forward(), self, MASS):
+		last_event = "Air dash"
 
 
 func _zip_tick(dt: float) -> void:
@@ -220,6 +220,7 @@ func _zip_tick(dt: float) -> void:
 		"perched":
 			global_position = zip_node.perch_position()
 			velocity = Vector3.ZERO
+			visual.rotation.y = atan2(zip_node.perch_outward.x, zip_node.perch_outward.z)  # face out over the drop
 			watching = true
 			grounded = true
 			last_event = "Perched"
@@ -232,10 +233,6 @@ func _zip_tick(dt: float) -> void:
 			velocity = zip_node.arrive_vel
 			last_impulse = MASS * velocity
 			last_event = "Perch vault"
-			grounded = false
-		"boosted":
-			last_impulse = MASS * velocity
-			last_event = "Web-zip boost"
 			grounded = false
 	move_and_slide()
 	grounded = is_on_floor()
