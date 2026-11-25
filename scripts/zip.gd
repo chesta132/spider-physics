@@ -1,7 +1,10 @@
 extends Node3D
-## Zip to point. Aim from the camera, shoot a line, pull the body along a straight controlled path,
-## then hand off cleanly: vault over a ledge, hop onto a top face, or push off a wall.
-## Only real geometry is a valid target; empty sky never is.
+## Zip to point, two modes:
+##  - Perch: a rooftop edge / outer corner is under the reticle, so Ctrl zips the body onto it and
+##    the controller settles into Watching.
+##  - Boost: no perch in view, so Ctrl fires a quick forward web and yanks the body along it,
+##    detaching at once and leaving the strand to fall.
+## Only real geometry counts; empty sky never does.
 
 const G := 9.8
 enum Phase { IDLE, SHOOT, PULL }
@@ -13,17 +16,32 @@ const ZIP_SPEED := 26.0                 # m/s, pull speed along the path
 const ARRIVE_DIST := 1.7                # m, arrival radius
 const VAULT_FWD := 6.0                  # m/s, Space near arrival: forward
 const VAULT_UP := 7.5                   # m/s, Space near arrival: up
-const LEDGE_HOP := 3.0                  # m/s, small hop when arriving on a top face
-const WALL_PUSH := 3.5                  # m/s, push off a wall so the body does not stick
 const STRAND_TIME := 2.0                # s, released strand lifetime
 const STRAND_DRAG := 0.4                # 1/s
 
+# Perch search: top faces only, and only near a drop (outer edge / corner)
+const PERCH_MIN_DIST := 4.0
+const PERCH_MAX_DIST := 40.0
+const PERCH_EDGE_PROBE := 0.6           # m, how far out to look for a drop
+const PERCH_EDGE_DROP := 0.8            # m, a probe must fall this far to count as an edge
+const PERCH_HINT_HZ := 12.0             # hint refresh rate (rays are cheap but not free)
+
+# Forward boost (no perch in view)
+const BOOST_TIME := 0.14                # s, how long the yank lasts
+const BOOST_SPEED := 19.0               # m/s, speed handed over
+const BOOST_LIFT := 0.18                # upward fraction of the boost direction
+
 var phase := Phase.IDLE
+var mode := ""                          # "perch" | "boost"
 var target := Vector3.ZERO
 var target_normal := Vector3.UP
+var perch := Vector3.ZERO               # best perch under the reticle
+var has_perch := false
 var shoot_from := Vector3.ZERO
 var shoot_t := 0.0
 var tip := Vector3.ZERO
+var boost_dir := Vector3.FORWARD
+var boost_t := 0.0
 var f_zip := Vector3.ZERO               # N, pull force this tick (for the FBD)
 var work := 0.0                         # J, work done by the pull
 var impulse := Vector3.ZERO             # N s, total impulse from the pull
@@ -32,7 +50,8 @@ var start_speed := 0.0
 var last_displacement := Vector3.ZERO
 var last_dk := 0.0
 var last_du := 0.0
-var last_arrival := ""                  # "vault" | "ledge" | "wall"
+var last_arrival := ""                  # "perch" | "vault" | "boost"
+var arrive_vel := Vector3.ZERO          # velocity handed back on a vault
 var strand_t := 0.0
 var strand_anchor := Vector3.ZERO
 var strand_tip := Vector3.ZERO
@@ -41,10 +60,12 @@ var strand_vel := Vector3.ZERO
 var _line: MeshInstance3D
 var _strand: MeshInstance3D
 var _reticle: MeshInstance3D
-var _aim_ok := false
+var _hint_t := 0.0
+var _body_rid: RID
 
 
 func _ready() -> void:
+	_body_rid = (get_parent() as CharacterBody3D).get_rid()  # so the perch hint works before the first zip
 	var m := StandardMaterial3D.new()
 	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	m.albedo_color = Color(0.85, 1.0, 1.0)
@@ -52,8 +73,8 @@ func _ready() -> void:
 	box.size = Vector3(0.05, 0.05, 1.0)
 	box.material = m
 	var ring := TorusMesh.new()
-	ring.inner_radius = 0.28
-	ring.outer_radius = 0.4
+	ring.inner_radius = 0.3
+	ring.outer_radius = 0.42
 	var rm := StandardMaterial3D.new()
 	rm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	rm.albedo_color = Color(0.2, 1.0, 0.9)
@@ -74,35 +95,65 @@ func _make(mesh: Mesh) -> MeshInstance3D:
 	return mi
 
 
-## Aim from the camera. Center ray first, then a small forgiving cone. Empty sky returns false.
-func aim(cam: Camera3D, body_rid: RID) -> bool:
+## Search the view for a rooftop edge or outer corner. True when one is under the reticle.
+func find_perch(cam: Camera3D, body_rid: RID) -> bool:
+	_body_rid = body_rid
 	var space := get_world_3d().direct_space_state
 	var origin := cam.global_position
 	var b := cam.global_transform.basis
 	var fwd := -b.z
-	var offs := [Vector2.ZERO, Vector2(0.05, 0), Vector2(-0.05, 0), Vector2(0, 0.05), Vector2(0, -0.05)]
-	for off in offs:
-		var dir: Vector3 = (fwd + b.x * off.x + b.y * off.y).normalized()
-		var q := PhysicsRayQueryParameters3D.create(origin, origin + dir * RANGE)
+	var best := Vector3.ZERO
+	var best_sc := -1e9
+	for ix in range(-2, 3):
+		for iy in range(-2, 3):
+			var dir: Vector3 = (fwd + b.x * (ix * 0.07) + b.y * (iy * 0.07)).normalized()
+			var q := PhysicsRayQueryParameters3D.create(origin, origin + dir * RANGE)
+			q.exclude = [body_rid]
+			var hit := space.intersect_ray(q)
+			if hit.is_empty():
+				continue
+			var n: Vector3 = hit["normal"]
+			if n.y < 0.6:
+				continue  # only a top face can be perched on
+			var p: Vector3 = hit["position"]
+			var d := origin.distance_to(p)
+			if d < PERCH_MIN_DIST or d > PERCH_MAX_DIST:
+				continue
+			if not _is_edge(p, n, body_rid):
+				continue
+			var sc := p.y * 0.35 - d * 0.6 - absf(ix) * 0.4 - absf(iy) * 0.4  # close, high, near the reticle centre
+			if sc > best_sc:
+				best_sc = sc
+				best = p
+	has_perch = best_sc != -1e9
+	if has_perch:
+		perch = best
+	return has_perch
+
+
+## True when the surface point is within PERCH_EDGE_PROBE of a drop: an outer edge or corner.
+func _is_edge(p: Vector3, n: Vector3, body_rid: RID) -> bool:
+	var space := get_world_3d().direct_space_state
+	var t1 := Vector3.RIGHT if absf(n.z) > 0.5 else Vector3.FORWARD
+	t1 = (t1 - n * t1.dot(n)).normalized()
+	var t2 := n.cross(t1)
+	for dir in [t1, -t1, t2, -t2]:
+		var from: Vector3 = p + dir * PERCH_EDGE_PROBE + n * 0.05
+		var q := PhysicsRayQueryParameters3D.create(from, from + Vector3.DOWN * 2.0)
 		q.exclude = [body_rid]
 		var hit := space.intersect_ray(q)
-		if hit.is_empty():
-			continue
-		var p: Vector3 = hit["position"]
-		if origin.distance_to(p) < MIN_DIST:
-			continue
-		target = p
-		target_normal = hit["normal"]
-		_aim_ok = true
-		return true
-	_aim_ok = false
+		if hit.is_empty() or (hit["position"] as Vector3).y < p.y - PERCH_EDGE_DROP:
+			return true  # the roof ends here
 	return false
 
 
-## Begin a zip to the current aim point. Returns false when there is no valid surface.
-func start(cam: Camera3D, body_rid: RID, body_pos: Vector3, body_vel: Vector3) -> bool:
-	if not aim(cam, body_rid):
+## Zip to the current perch. False when there is no perch hint.
+func start_perch(cam: Camera3D, body_rid: RID, body_pos: Vector3, body_vel: Vector3) -> bool:
+	if not find_perch(cam, body_rid):
 		return false
+	mode = "perch"
+	target = perch
+	target_normal = Vector3.UP
 	shoot_from = body_pos + Vector3(0, 1.4, 0)
 	tip = shoot_from
 	shoot_t = 0.0
@@ -115,8 +166,25 @@ func start(cam: Camera3D, body_rid: RID, body_pos: Vector3, body_vel: Vector3) -
 	return true
 
 
-## Advance the zip. Returns "pull", "arrived" or "idle". On "pull" the body velocity is set.
-func step(dt: float, body: CharacterBody3D, mass: float) -> String:
+## No perch in view: a quick forward yank with no anchor. Returns false only if already busy.
+func start_boost(cam_fwd: Vector3, body_pos: Vector3, body_vel: Vector3) -> bool:
+	mode = "boost"
+	boost_dir = (cam_fwd + Vector3.UP * BOOST_LIFT).normalized()
+	boost_t = BOOST_TIME
+	shoot_from = body_pos + Vector3(0, 1.4, 0)
+	tip = shoot_from + boost_dir * 12.0
+	target = shoot_from + boost_dir * RANGE
+	start_pos = body_pos
+	start_speed = body_vel.length()
+	work = 0.0
+	impulse = Vector3.ZERO
+	f_zip = Vector3.ZERO
+	phase = Phase.PULL
+	return true
+
+
+## Advance the zip. Returns "pull", "perched", "vault", "boosted" or "idle".
+func step(dt: float, body: CharacterBody3D, mass: float, vault: bool) -> String:
 	_strand_step(dt)
 	if phase == Phase.SHOOT:
 		shoot_t += dt
@@ -127,10 +195,27 @@ func step(dt: float, body: CharacterBody3D, mass: float) -> String:
 		return "pull"
 	if phase != Phase.PULL:
 		return "idle"
+	if mode == "boost":
+		boost_t -= dt
+		var want := boost_dir * BOOST_SPEED
+		var dvb := want - body.velocity
+		f_zip = mass * dvb / maxf(dt, 0.0001)
+		impulse += f_zip * dt
+		body.velocity = want
+		tip = shoot_from + boost_dir * 12.0
+		work = 0.5 * mass * (want.length_squared() - start_speed * start_speed) \
+			+ mass * G * (body.global_position.y - start_pos.y)
+		if boost_t <= 0.0:
+			_detach(body.global_position)
+			last_arrival = "boost"
+			phase = Phase.IDLE
+			f_zip = Vector3.ZERO
+			return "boosted"
+		return "pull"
 	var d := target - body.global_position
 	var dist := d.length()
 	if dist <= ARRIVE_DIST:
-		return "arrived"
+		return _finish(body, mass, vault)
 	var dir := d / dist
 	var speed := minf(ZIP_SPEED, dist / maxf(dt, 0.0001))  # never overshoot the target in one step
 	var want := dir * speed
@@ -145,38 +230,38 @@ func step(dt: float, body: CharacterBody3D, mass: float) -> String:
 	return "pull"
 
 
-## Finish the zip: vault with Space, hop onto a ledge top, or push off a wall. Returns velocity.
-func arrive(body_vel: Vector3, cam_fwd: Vector3, vault: bool, mass: float) -> Vector3:
-	var v := body_vel
-	last_displacement = global_position - start_pos
-	last_dk = 0.5 * mass * (v.length_squared() - start_speed * start_speed)
+func _finish(body: CharacterBody3D, mass: float, vault: bool) -> String:
+	last_displacement = body.global_position - start_pos
+	last_dk = 0.5 * mass * (body.velocity.length_squared() - start_speed * start_speed)
 	last_du = mass * G * last_displacement.y
-	work = last_dk + last_du  # Ch. 6: W_web = dK + dU_g, exact at the arrival point
+	work = last_dk + last_du  # exact at the arrival point
+	_detach(body.global_position)
+	f_zip = Vector3.ZERO
+	phase = Phase.IDLE
 	if vault:
-		v = cam_fwd * VAULT_FWD + Vector3.UP * VAULT_UP
+		arrive_vel = body.velocity.normalized() * VAULT_FWD + Vector3.UP * VAULT_UP
 		last_arrival = "vault"
-	elif target_normal.y > 0.6:
-		v = Vector3(0, maxf(v.y, LEDGE_HOP), 0)
-		last_arrival = "ledge"
-	else:
-		v = target_normal * WALL_PUSH + Vector3.UP * 1.5
-		last_arrival = "wall"
+		return "vault"
+	last_arrival = "perch"
+	return "perched"
+
+
+## Perch placement: feet on the surface point, velocity cleared by the controller.
+func perch_position() -> Vector3:
+	return perch + Vector3.UP * 0.05
+
+
+func _detach(body_pos: Vector3) -> void:
 	strand_anchor = target
-	strand_tip = global_position + Vector3(0, 1.4, 0)
+	strand_tip = body_pos + Vector3(0, 1.4, 0)
 	strand_vel = Vector3.ZERO
 	strand_t = STRAND_TIME
-	phase = Phase.IDLE
-	f_zip = Vector3.ZERO
-	return v
 
 
 func cancel() -> void:
 	phase = Phase.IDLE
 	f_zip = Vector3.ZERO
-
-
-func aim_visible() -> bool:
-	return _aim_ok
+	has_perch = false
 
 
 func _strand_step(dt: float) -> void:
@@ -189,18 +274,25 @@ func _strand_step(dt: float) -> void:
 	strand_tip.y = maxf(strand_tip.y, 0.05)
 
 
-func _process(_delta: float) -> void:
+func _process(delta: float) -> void:
 	var hand := global_position + Vector3(0, 1.4, 0)
 	match phase:
 		Phase.SHOOT:
 			_seg(_line, hand, tip)
 			_mark(target, true)
 		Phase.PULL:
-			_seg(_line, hand, target)
-			_mark(target, true)
+			_seg(_line, hand, tip if mode == "boost" else target)
+			_mark(target if mode == "perch" else tip, true)
 		_:
 			_line.visible = false
-			_mark(target, _aim_ok)
+			# Idle: refresh the perch hint a few times a second.
+			_hint_t -= delta
+			if _hint_t <= 0.0 and _body_rid.is_valid():
+				_hint_t = 1.0 / PERCH_HINT_HZ
+				var cam := get_viewport().get_camera_3d()
+				if cam:
+					find_perch(cam, _body_rid)
+			_mark(perch, has_perch)
 	if strand_t > 0.0:
 		_seg(_strand, strand_anchor, strand_tip)
 	else:

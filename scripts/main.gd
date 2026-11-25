@@ -35,6 +35,11 @@ func _zip_course() -> void:
 	_box(Vector3(66, 8.0, 20), Vector3(5, 16, 5), tier.lightened(0.1))
 	# Tall thin wall face: zip onto a vertical surface.
 	_box(Vector3(40, 10.0, -22), Vector3(1.2, 20, 14), tier.darkened(0.1))
+	# Thin perch pillars: every top point is near an edge, so outer-corner hints register easily.
+	_box(Vector3(74, 5.0, 20), Vector3(2, 10, 2), tier.lightened(0.15))
+	_box(Vector3(78, 8.0, 27), Vector3(2, 16, 2), tier.lightened(0.2))
+	# Rooftop slab with clean outer corners to perch on.
+	_box(Vector3(80, 12.0, 20), Vector3(7, 0.8, 7), tier)
 	# Overhanging archway: two pillars and a slab, zip up onto the perch.
 	_box(Vector3(52, 5.0, -22), Vector3(1.5, 10, 1.5), tier.darkened(0.2))
 	_box(Vector3(60, 5.0, -22), Vector3(1.5, 10, 1.5), tier.darkened(0.2))

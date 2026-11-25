@@ -97,7 +97,7 @@ func _process(_delta: float) -> void:
 	if _p.zip_node.phase != _p.zip_node.Phase.IDLE or _p.zip_node.last_arrival != "":
 		var z = _p.zip_node
 		var dr: Vector3 = z.last_displacement
-		lines.append("ZIP  F_zip = %.0f N   W = F.dr = %.0f J   |dr| = %.2f m" % [z.f_zip.length(), z.work, dr.length()])
+		lines.append("ZIP [%s]  F_zip = %.0f N   W = F.dr = %.0f J   |dr| = %.2f m" % [z.mode, z.f_zip.length(), z.work, dr.length()])
 		lines.append("Energy dK = %.0f J   dU_g = %.0f J   Impulse |J| = %.0f N s" % [z.last_dk, z.last_du, z.impulse.length()])
 	var w = _web()
 	if w.phase == w.Phase.ROPE:

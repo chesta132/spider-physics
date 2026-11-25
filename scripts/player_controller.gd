@@ -5,13 +5,13 @@ extends CharacterBody3D
 ## move_and_slide resolves contacts. Godot's solver owns the touchdown; this script only reads it.
 ## Child "Visual" is cosmetic only; its "Body" mesh is recolored per state.
 
-enum State { IDLE, WALK, RUN, JUMP, FALL, FLY, CHARGE, SUPER, DIVE, FAST_DIVE, LAND, ZIP }
-const STATE_NAMES := ["IDLE", "WALK", "RUN", "JUMP", "FALL", "DEV-FLY", "CHARGE", "SUPER JUMP", "DIVE", "FAST DIVE", "LAND", "ZIP"]
+enum State { IDLE, WALK, RUN, JUMP, FALL, FLY, CHARGE, SUPER, DIVE, FAST_DIVE, LAND, ZIP, WATCHING }
+const STATE_NAMES := ["IDLE", "WALK", "RUN", "JUMP", "FALL", "DEV-FLY", "CHARGE", "SUPER JUMP", "DIVE", "FAST DIVE", "LAND", "ZIP", "WATCHING"]
 const STATE_COLORS := [
 	Color(0.6, 0.6, 0.6), Color(0.2, 0.8, 0.3), Color(1.0, 0.55, 0.0),
 	Color(0.2, 0.8, 1.0), Color(0.9, 0.2, 0.8), Color(1.0, 1.0, 1.0),
 	Color(1.0, 0.9, 0.1), Color(0.6, 0.1, 1.0), Color(0.1, 0.3, 1.0),
-	Color(1.0, 0.1, 0.1), Color(0.5, 0.3, 0.1), Color(0.0, 0.95, 0.85),
+	Color(1.0, 0.1, 0.1), Color(0.5, 0.3, 0.1), Color(0.0, 0.95, 0.85), Color(0.55, 0.35, 0.95),
 ]
 
 const MASS := 70.0           # kg
@@ -56,6 +56,7 @@ var charging := false
 var charge_t := 0.0          # s, how long jump is held on the ground
 var launch_super := false    # true while rising from a super jump
 var landing := false         # true from a heavy touchdown until the player gives input
+var watching := false        # perched on a rooftop edge, holding still until input
 var diving := false
 var fast := false
 var air_peak := 0.0          # m, highest point since leaving the ground
@@ -81,9 +82,13 @@ func _physics_process(dt: float) -> void:
 		drag_loss = 0.0
 	wish = _camera_relative_wish()
 	sprint = Input.is_action_pressed("sprint")
-	if Input.is_action_just_pressed("zip") and not fly and zip_node.phase == zip_node.Phase.IDLE:
-		_zip_start()
-	if zip_node.phase != zip_node.Phase.IDLE:
+	if Input.is_action_just_pressed("zip") and not fly:
+		watching = false
+		if zip_node.phase == zip_node.Phase.IDLE:
+			_zip_start()
+	if watching:
+		_watching(dt)
+	elif zip_node.phase != zip_node.Phase.IDLE:
 		_zip_tick(dt)
 	elif fly:
 		_fly(dt)
@@ -196,30 +201,70 @@ func _zip_start() -> void:
 	web_l.release(_flat_forward(), velocity.length())
 	web_r.release(_flat_forward(), velocity.length())
 	charging = false
-	if zip_node.start(cam_ref, get_rid(), global_position, velocity):
-		last_event = "Zip fire"
+	landing = false
+	if zip_node.start_perch(cam_ref, get_rid(), global_position, velocity):
+		last_event = "Zip to perch"
+	elif zip_node.start_boost(_flat_forward(), global_position, velocity):
+		last_event = "Web-zip boost"
 
 
 func _zip_tick(dt: float) -> void:
-	var r: String = zip_node.step(dt, self, MASS)
+	var r: String = zip_node.step(dt, self, MASS, Input.is_action_pressed("jump"))
 	f_g = Vector3(0, -MASS * G, 0)
 	f_d = drag(velocity)
 	f_n = Vector3.ZERO
 	f_zip = zip_node.f_zip
 	net = f_g + f_d + f_zip
 	accel = net / MASS
-	if r == "arrived":
-		velocity = zip_node.arrive(velocity, _flat_forward(), Input.is_action_pressed("jump"), MASS)
-		last_impulse = MASS * velocity
-		last_event = "Zip " + zip_node.last_arrival
-		f_zip = Vector3.ZERO
-		net = f_g + f_d
-		accel = net / MASS
-		grounded = false
+	match r:
+		"perched":
+			global_position = zip_node.perch_position()
+			velocity = Vector3.ZERO
+			watching = true
+			grounded = true
+			last_event = "Perched"
+			last_impulse = Vector3.ZERO
+			f_zip = Vector3.ZERO
+			net = Vector3.ZERO
+			accel = Vector3.ZERO
+			return
+		"vault":
+			velocity = zip_node.arrive_vel
+			last_impulse = MASS * velocity
+			last_event = "Perch vault"
+			grounded = false
+		"boosted":
+			last_impulse = MASS * velocity
+			last_event = "Web-zip boost"
+			grounded = false
 	move_and_slide()
 	grounded = is_on_floor()
 	if not grounded:
 		landing = false
+
+
+## Perched: hold still on the edge. Any movement, jump, web or zip input ends it.
+func _watching(dt: float) -> void:
+	velocity = Vector3.ZERO
+	f_g = Vector3(0, -MASS * G, 0)
+	f_n = Vector3(0, MASS * G, 0)
+	f_app = Vector3.ZERO
+	f_d = Vector3.ZERO
+	f_zip = Vector3.ZERO
+	net = f_g + f_n
+	accel = Vector3.ZERO
+	grounded = true
+	if Input.is_action_just_pressed("jump"):
+		# Point launch off the perch: a clean forward/up hop, not a walk-off.
+		velocity = _flat_forward() * 4.0 + Vector3.UP * jump_speed() * 1.15
+		last_impulse = MASS * velocity
+		last_event = "Point launch"
+		watching = false
+	elif wish.length_squared() > 0.01:
+		watching = false
+	elif Input.is_action_just_pressed("web_left") or Input.is_action_just_pressed("web_right"):
+		watching = false
+		_web_input()
 
 
 func _launch() -> void:
@@ -250,6 +295,8 @@ func _touchdown(impact: float, drop: float) -> void:
 
 
 func _refine_state(s: State) -> State:
+	if watching:
+		return State.WATCHING
 	if zip_node.phase != zip_node.Phase.IDLE:
 		return State.ZIP
 	if grounded and landing:

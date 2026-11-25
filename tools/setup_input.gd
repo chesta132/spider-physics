@@ -17,15 +17,7 @@ func _initialize() -> void:
 	# Registered for later steps, not implemented yet
 	_mouse("web_left", MOUSE_BUTTON_LEFT)
 	_mouse("web_right", MOUSE_BUTTON_RIGHT)
-	# Step 4: zip to point on E and Middle Mouse (two events, so use a direct bind)
-	var zk := InputEventKey.new()
-	zk.keycode = KEY_E
-	var zm := InputEventMouseButton.new()
-	zm.button_index = MOUSE_BUTTON_MIDDLE
-	zm.pressed = true
-	zk.device = -1
-	zm.device = -1
-	ProjectSettings.set_setting("input/zip", {"deadzone": 0.5, "events": [zk, zm]})
+	_key("zip", KEY_CTRL)  # Step 4: zip to point / perch (Ctrl)
 	_key("super_jump", KEY_SPACE)
 	_key("fast_dive", KEY_SHIFT)
 	_key("wall_detach", KEY_SPACE)
