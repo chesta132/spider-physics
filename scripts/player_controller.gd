@@ -620,9 +620,8 @@ func _turn_visual(dt: float) -> void:
 	var want := Basis(Vector3.UP, heading)  # Visual local +Z faces the direction of travel
 	if on:
 		want = _wall_frame()
-	elif state == State.DIVE or state == State.FAST_DIVE or state == State.FLY:
-		# Reuse the tilt idea from the web lean: pitch the upright body onto its velocity, so the
-		# dive and the dev-fly glide point where the body is actually going.
+	elif state == State.FLY:
+		# Dev-fly glide: pitch the upright body onto its velocity.
 		want = want * Basis(Vector3.RIGHT, _air_pitch())
 	var k := clampf((WALL_TURN_RATE if on else TURN_RATE) * dt, 0.0, 1.0)
 	# Pivot and hug ramp with the same k as the rotation, so grabbing or leaving a face is one move.
