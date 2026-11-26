@@ -9,7 +9,7 @@ const SPLASH_URL := "https://chardy.dev"
 const HELP_ROWS := [
 	["W / A / S / D", "Move"],
 	["SHIFT", "Sprint / fast dive"],
-	["SPACE", "Jump · wall jump · release web"],
+	["SPACE", "Jump / wall jump / release web"],
 	["LEFT CLICK", "Left web"],
 	["RIGHT CLICK", "Right web"],
 	["LEFT CTRL", "Zip to target"],
@@ -18,20 +18,48 @@ const HELP_ROWS := [
 	["F3", "Physics menu"]
 ]
 
+const FONT_PATH := "res://assets/ui/Minecraft.ttf"
+const TEXT_DARK := Color(0.17, 0.17, 0.19)
+const SPLASH_ANGLE := -0.314159
+
 @export var play_text := "PLAY"
-@onready var splash: Button = $Margin/VBox/Splash
-var help_overlay: ColorRect
+@onready var splash: Button = $Root/Title/Splash
+@onready var title: Control = $Root/Title
+@onready var buttons: Array[Button] = [$Root/Buttons/Play, $Root/Buttons/Help, $Root/Buttons/Quit]
+var help_overlay: Control
+var font: Font
+var font_bold: Font
 
 func _ready() -> void:
-	$Margin/VBox/Buttons/Play.text = play_text
-	$Margin/VBox/Buttons/Play.pressed.connect(play_pressed.emit)
-	$Margin/VBox/Bottom/Help.pressed.connect(_help)
-	$Margin/VBox/Bottom/Quit.pressed.connect(func() -> void: get_tree().quit())
+	font = load(FONT_PATH)
+	font_bold = font
+	var title_font := FontVariation.new()
+	title_font.base_font = font
+	title_font.variation_embolden = 0.3
+	title.set("font", title_font)
+	title.queue_redraw()
+	$Root/Buttons/Play.text = play_text
+	$Root/Buttons/Play.pressed.connect(play_pressed.emit)
+	$Root/Buttons/Help.pressed.connect(_help)
+	$Root/Buttons/Quit.pressed.connect(func() -> void: get_tree().quit())
 	splash.pressed.connect(func() -> void: OS.shell_open(SPLASH_URL))
+	for b in buttons:
+		_style_button(b, 32)
+	_style_splash()
+	var footer: Label = $Root/Footer
+	footer.add_theme_font_override("font", font)
+	footer.add_theme_font_size_override("font_size", 16)
+	footer.add_theme_color_override("font_color", Color(0.92, 0.92, 0.95))
+	footer.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.85))
+	footer.add_theme_constant_override("shadow_offset_x", 2)
+	footer.add_theme_constant_override("shadow_offset_y", 2)
+	title.resized.connect(_place_splash)
+	_place_splash()
 
 func _process(_delta: float) -> void:
-	splash.rotation = sin(Time.get_ticks_msec() * 0.004) * 0.025
-	splash.scale = Vector2.ONE * (1.0 + sin(Time.get_ticks_msec() * 0.006) * 0.025)
+	var t := Time.get_ticks_msec() * 0.001
+	splash.rotation = SPLASH_ANGLE + sin(t * 4.0) * 0.02
+	splash.scale = Vector2.ONE * (1.0 + sin(t * 6.0) * 0.04)
 
 func _unhandled_input(event: InputEvent) -> void:
 	if not event.is_action_pressed("ui_cancel"):
@@ -44,64 +72,139 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	get_viewport().set_input_as_handled()
 
+## Splash sits on the lower-right corner of the logo, tilted, like the Minecraft one.
+func _place_splash() -> void:
+	splash.size = splash.get_minimum_size()
+	splash.pivot_offset = splash.size * 0.5
+	splash.position = Vector2(title.size.x - 120.0, title.size.y - 26.0) - splash.size * 0.5
+
+func _style_splash() -> void:
+	splash.add_theme_font_override("font", font)
+	splash.add_theme_font_size_override("font_size", 24)
+	for c in ["font_color", "font_hover_color", "font_pressed_color", "font_focus_color"]:
+		splash.add_theme_color_override(c, Color(1.0, 1.0, 0.33))
+	splash.add_theme_color_override("font_outline_color", Color(0.18, 0.18, 0.0))
+	splash.add_theme_constant_override("outline_size", 6)
+	splash.focus_mode = Control.FOCUS_NONE
+
+## Pixel-art bevel (2px "pixels") stretched as a 9-slice: dark edge, lit top/left, shaded bottom/right.
+func _bevel(fill: Color, light: Color, shade: Color, edge: Color) -> StyleBoxTexture:
+	const U := 2
+	const N := 8
+	var img := Image.create_empty(N * U, N * U, false, Image.FORMAT_RGBA8)
+	for y in N:
+		for x in N:
+			var c := fill
+			if x == 0 or y == 0 or x == N - 1 or y == N - 1:
+				c = edge
+			elif x == 1 or y == 1:
+				c = light
+			elif y >= N - 3 or x == N - 2:
+				c = shade
+			img.fill_rect(Rect2i(x * U, y * U, U, U), c)
+	var box := StyleBoxTexture.new()
+	box.texture = ImageTexture.create_from_image(img)
+	box.texture_margin_left = 3 * U
+	box.texture_margin_right = 3 * U
+	box.texture_margin_top = 3 * U
+	box.texture_margin_bottom = 3 * U
+	box.content_margin_left = 12
+	box.content_margin_right = 12
+	return box
+
+func _style_button(b: Button, size: int) -> void:
+	var normal := _bevel(Color(0.70, 0.70, 0.72), Color(0.93, 0.93, 0.95), Color(0.42, 0.42, 0.46), Color(0.07, 0.07, 0.09))
+	var hover := _bevel(Color(0.62, 0.68, 0.88), Color(0.86, 0.9, 1.0), Color(0.33, 0.38, 0.6), Color(1, 1, 1))
+	var pressed := _bevel(Color(0.52, 0.52, 0.56), Color(0.36, 0.36, 0.4), Color(0.7, 0.7, 0.74), Color(0.07, 0.07, 0.09))
+	b.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	b.add_theme_stylebox_override("normal", normal)
+	b.add_theme_stylebox_override("hover", hover)
+	b.add_theme_stylebox_override("pressed", pressed)
+	b.add_theme_stylebox_override("focus", hover)
+	b.add_theme_font_override("font", font_bold)
+	b.add_theme_font_size_override("font_size", size)
+	for c in ["font_color", "font_hover_color", "font_pressed_color", "font_focus_color"]:
+		b.add_theme_color_override(c, TEXT_DARK)
+	b.add_theme_color_override("font_hover_color", Color(0.06, 0.06, 0.1))
+
 func _help() -> void:
 	if help_overlay:
 		help_overlay.show()
 		return
-	help_overlay = ColorRect.new()
-	help_overlay.color = Color(0.01, 0.015, 0.03, 0.72)
-	help_overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	help_overlay.mouse_filter = Control.MOUSE_FILTER_STOP
-	add_child(help_overlay)
+	var overlay := ColorRect.new()
+	overlay.color = Color(0, 0, 0, 0.62)
+	overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	overlay.mouse_filter = Control.MOUSE_FILTER_STOP
+	overlay.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	help_overlay = overlay
+	add_child(overlay)
+
+	var center := CenterContainer.new()
+	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	center.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	overlay.add_child(center)
 
 	var popup := PanelContainer.new()
 	popup.name = "HelpPopup"
-	popup.custom_minimum_size = Vector2(520, 500)
-	popup.set_anchors_preset(Control.PRESET_CENTER)
-	popup.position -= popup.custom_minimum_size / 2.0
-	var panel_style := StyleBoxFlat.new()
-	panel_style.bg_color = Color(0.035, 0.05, 0.085, 0.98)
-	panel_style.border_color = Color(0.95, 0.72, 0.18, 1)
-	panel_style.set_border_width_all(2)
-	panel_style.set_corner_radius_all(8)
-	panel_style.content_margin_left = 30
-	panel_style.content_margin_right = 30
-	panel_style.content_margin_top = 24
-	panel_style.content_margin_bottom = 24
-	popup.add_theme_stylebox_override("panel", panel_style)
-	help_overlay.add_child(popup)
+	popup.custom_minimum_size = Vector2(560, 0)
+	popup.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	var panel := _bevel(Color(0.70, 0.70, 0.72), Color(0.93, 0.93, 0.95), Color(0.42, 0.42, 0.46), Color(0.07, 0.07, 0.09))
+	panel.content_margin_left = 34
+	panel.content_margin_right = 34
+	panel.content_margin_top = 26
+	panel.content_margin_bottom = 26
+	popup.add_theme_stylebox_override("panel", panel)
+	center.add_child(popup)
 
 	var column := VBoxContainer.new()
-	column.add_theme_constant_override("separation", 12)
+	column.add_theme_constant_override("separation", 10)
 	popup.add_child(column)
-	var title := Label.new()
-	title.text = "HOW TO PLAY"
-	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	title.add_theme_font_size_override("font_size", 30)
-	title.add_theme_color_override("font_color", Color(1, 0.82, 0.2))
-	column.add_child(title)
+	var heading := Label.new()
+	heading.text = "HOW TO PLAY"
+	heading.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	heading.add_theme_font_override("font", font_bold)
+	heading.add_theme_font_size_override("font_size", 40)
+	heading.add_theme_color_override("font_color", TEXT_DARK)
+	column.add_child(heading)
 	var hint := Label.new()
 	hint.text = "KEYBINDS"
 	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	hint.add_theme_color_override("font_color", Color(0.62, 0.7, 0.84))
+	hint.add_theme_font_override("font", font)
+	hint.add_theme_font_size_override("font_size", 16)
+	hint.add_theme_color_override("font_color", Color(0.32, 0.32, 0.38))
 	column.add_child(hint)
+	var rows := PanelContainer.new()
+	rows.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	var inset := _bevel(Color(0.30, 0.30, 0.33), Color(0.22, 0.22, 0.25), Color(0.42, 0.42, 0.46), Color(0.07, 0.07, 0.09))
+	inset.content_margin_left = 22
+	inset.content_margin_right = 22
+	inset.content_margin_top = 16
+	inset.content_margin_bottom = 16
+	rows.add_theme_stylebox_override("panel", inset)
+	column.add_child(rows)
+	var list := VBoxContainer.new()
+	list.add_theme_constant_override("separation", 6)
+	rows.add_child(list)
 	for row in HELP_ROWS:
 		var line := HBoxContainer.new()
-		line.add_theme_constant_override("separation", 24)
+		line.add_theme_constant_override("separation", 20)
 		var key := Label.new()
 		key.text = row[0]
-		key.custom_minimum_size.x = 170
-		key.add_theme_color_override("font_color", Color(0.95, 0.98, 1))
-		key.add_theme_font_size_override("font_size", 18)
+		key.custom_minimum_size.x = 190
+		key.add_theme_font_override("font", font_bold)
+		key.add_theme_font_size_override("font_size", 16)
+		key.add_theme_color_override("font_color", Color(1.0, 1.0, 0.45))
 		line.add_child(key)
 		var action := Label.new()
 		action.text = row[1]
-		action.add_theme_color_override("font_color", Color(0.65, 0.7, 0.8))
-		action.add_theme_font_size_override("font_size", 18)
+		action.add_theme_font_override("font", font)
+		action.add_theme_font_size_override("font_size", 16)
+		action.add_theme_color_override("font_color", Color(0.92, 0.92, 0.95))
 		line.add_child(action)
-		column.add_child(line)
+		list.add_child(line)
 	var close := Button.new()
 	close.text = "CLOSE  (ESC)"
-	close.custom_minimum_size.y = 48
-	close.pressed.connect(help_overlay.hide)
+	close.custom_minimum_size.y = 52
+	_style_button(close, 24)
+	close.pressed.connect(overlay.hide)
 	column.add_child(close)
