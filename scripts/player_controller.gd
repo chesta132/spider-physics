@@ -620,6 +620,10 @@ func _turn_visual(dt: float) -> void:
 	var want := Basis(Vector3.UP, heading)  # Visual local +Z faces the direction of travel
 	if on:
 		want = _wall_frame()
+	elif state == State.DIVE or state == State.FAST_DIVE or state == State.FLY:
+		# Reuse the tilt idea from the web lean: pitch the upright body onto its velocity, so the
+		# dive and the dev-fly glide point where the body is actually going.
+		want = want * Basis(Vector3.RIGHT, _air_pitch())
 	var k := clampf((WALL_TURN_RATE if on else TURN_RATE) * dt, 0.0, 1.0)
 	# Pivot and hug ramp with the same k as the rotation, so grabbing or leaving a face is one move.
 	wall_pivot = lerpf(wall_pivot, WALL_CRAWL_PIVOT if wall_node.phase == wall_node.Phase.CRAWL else 0.0, k)
@@ -627,6 +631,15 @@ func _turn_visual(dt: float) -> void:
 	var b := visual.basis.slerp(want, k)
 	var pivot := Vector3(0.0, wall_pivot, 0.0)
 	visual.transform = Transform3D(b, pivot - b * pivot - wall_node.normal * wall_hug)
+
+
+## Head-leads-travel pitch for the dive and dev-fly states: the model's up axis is aimed at the
+## velocity, so a dive points where he falls and a glide points where he flies. 0 when still.
+func _air_pitch() -> float:
+	var run := Vector3(velocity.x, 0.0, velocity.z).length()
+	if run < 0.01 and absf(velocity.y) < 0.01:
+		return 0.0
+	return atan2(run, velocity.y)
 
 
 ## Body frame on the face, built from the live normal so a slanted or tilted face tilts the body
@@ -738,6 +751,12 @@ func _play_ground_clip(s: State) -> void:
 		State.SWING_DOWN: clip = "swing_down_%d" % _web_count()
 		State.SWING_JUMP: clip = "swing_jump"
 		State.ZIP: clip = "zip"
+		State.CHARGE: clip = "charge"
+		State.SUPER: clip = "super_jump"
+		State.DIVE: clip = "dive"
+		State.FAST_DIVE: clip = "fast_dive"
+		State.FLY: clip = "dev_fly"
+		State.WATCHING: clip = "watching"
 		# WALL RUN has no clip of its own: it is the run stride, re-aimed at the face by the body frame.
 		State.WALL_RUN: clip = "run"
 		State.WALL_CRAWL: clip = "wall_crawl"
@@ -768,8 +787,10 @@ func _update_anim(_dt: float) -> void:
 	elif state == State.WALL_RUN:
 		anim.speed_scale = clampf(ANIM_RATE * wall_node.wall_vel.length() / WALK_SPEED, 0.8, 1.4)
 	elif state == State.SWING_UP or state == State.SWING_DOWN or state == State.SWING_JUMP or state == State.ZIP \
-			or state == State.WALL_JUMP or state == State.WALL_EDGE_UP or state == State.WALL_EDGE_DOWN:
-		# Web clips and the wall one-shots are pose beats: physics and the state window set timing.
+			or state == State.WALL_JUMP or state == State.WALL_EDGE_UP or state == State.WALL_EDGE_DOWN \
+			or state == State.CHARGE or state == State.SUPER or state == State.DIVE or state == State.FAST_DIVE \
+			or state == State.FLY or state == State.WATCHING:
+		# Web clips, the wall one-shots and the held air/perch poses: physics and the state window set timing.
 		anim.speed_scale = 1.0
 	else:
 		anim.speed_scale = clampf(ANIM_RATE * Vector2(velocity.x, velocity.z).length() / WALK_SPEED, 0.8, 1.4)
