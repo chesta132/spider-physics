@@ -8,6 +8,10 @@
 [ext_resource type="Animation" path="res://assets/player_lego/anim/swing_down_2.tres" id="6_anim_swing_down_2"]
 [ext_resource type="Animation" path="res://assets/player_lego/anim/swing_jump.tres" id="7_anim_swing_jump"]
 [ext_resource type="Animation" path="res://assets/player_lego/anim/zip.tres" id="8_anim_zip"]
+[ext_resource type="Animation" path="res://assets/player_lego/anim/wall_crawl.tres" id="9_anim_wall_crawl"]
+[ext_resource type="Animation" path="res://assets/player_lego/anim/wall_jump.tres" id="10_anim_wall_jump"]
+[ext_resource type="Animation" path="res://assets/player_lego/anim/wall_edge_up.tres" id="11_anim_wall_edge_up"]
+[ext_resource type="Animation" path="res://assets/player_lego/anim/wall_edge_down.tres" id="12_anim_wall_edge_down"]
 
 [sub_resource type="StandardMaterial3D" id="StandardMaterial3D_lyf2i"]
 resource_name = "lego"
@@ -808,6 +812,10 @@ _data = {
 &"swing_up_1": ExtResource("3_anim_swing_up_1"),
 &"swing_up_2": ExtResource("4_anim_swing_up_2"),
 &"walk": SubResource("Animation_eydyl"),
+&"wall_crawl": ExtResource("9_anim_wall_crawl"),
+&"wall_edge_down": ExtResource("12_anim_wall_edge_down"),
+&"wall_edge_up": ExtResource("11_anim_wall_edge_up"),
+&"wall_jump": ExtResource("10_anim_wall_jump"),
 &"zip": ExtResource("8_anim_zip")
 }
 

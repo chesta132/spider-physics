@@ -57,6 +57,9 @@ const LEAN_BANK := 25.0      # deg, biggest roll into the swing arc
 const LEAN_IN := 6.0         # 1/s, blend into the web lean
 const LEAN_OUT := 4.0        # 1/s, blend back upright
 const LEAN_PIVOT := 0.95     # m, the body leans around the hips, not the feet
+const WALL_FACE_TIME := 0.18 # s, blend between the upright body and the wall frame
+const WALL_HUG := 0.20       # m, clearance kept between the body and the face it is on
+const WALL_CRAWL_PIVOT := 0.75  # m, the crawl pivots around the hips; the run around the feet
 
 var state := State.IDLE
 var grounded := false
@@ -102,6 +105,10 @@ var air_peak := 0.0          # m, highest point since leaving the ground
 var drag_loss := 0.0         # J, energy removed by air drag since takeoff
 var lean_pitch := 0.0        # rad, cosmetic torso pitch toward the web (0 = upright)
 var lean_roll := 0.0         # rad, cosmetic bank into the swing arc
+var heading := 0.0           # rad, Visual yaw: local +Z faces the way the body is pointed
+var wall_fwd := Vector3.FORWARD  # unit, last direction of travel along the face
+var wall_pivot := 0.0        # m, body-space height the wall frame turns around
+var wall_hug := 0.0          # m, how far the model is pulled toward the face
 
 var _shown := -1
 var _shown_webs := 0   # web count the current clip was picked for (1 vs 2 web variants)
@@ -124,6 +131,18 @@ const CRACK_LIFE := 1.6
 func _ready() -> void:
 	if anim:
 		anim.animation_finished.connect(_on_anim_finished)
+		# The first play of this external clip makes AnimationPlayer build its track cache. Do that
+		# before the first frame, rather than during the player's first swing jump.
+		_prewarm_animation("moves/swing_jump")
+
+
+func _prewarm_animation(path: String) -> void:
+	if not anim.has_animation(path):
+		return
+	anim.play(path, 0.0)
+	anim.seek(0.0, true)
+	anim.stop()
+
 
 
 ## Godot only loops a whole clip, so swing_jump (launch pose + loop) is not set to loop: when it
@@ -450,7 +469,8 @@ func _zip_tick(dt: float) -> void:
 		"perched":
 			global_position = zip_node.perch_position()
 			velocity = Vector3.ZERO
-			visual.rotation.y = atan2(zip_node.perch_outward.x, zip_node.perch_outward.z)  # face out over the drop
+			heading = atan2(zip_node.perch_outward.x, zip_node.perch_outward.z)  # face out over the drop
+			visual.transform = Transform3D(Basis(Vector3.UP, heading), Vector3.ZERO)  # scripted arrival: snap
 			watching = true
 			grounded = true
 			last_event = "Perched"
@@ -590,18 +610,45 @@ func _fly(dt: float) -> void:
 
 
 func _turn_visual(dt: float) -> void:
-	var target := 0.0
-	if wall_node.active():
-		# On a wall the body faces into the surface (+Z along -normal), whatever the speed.
-		# Lerped like any other heading, so a corner wrap turns smoothly instead of snapping.
-		target = atan2(-wall_node.normal.x, -wall_node.normal.z)
-		visual.rotation.y = lerp_angle(visual.rotation.y, target, clampf(WALL_TURN_RATE * dt, 0.0, 1.0))
-		return
+	var on: bool = wall_node.active()
 	var h := Vector3(velocity.x, 0, velocity.z)
-	if h.length() < 0.3:
-		return
-	target = atan2(h.x, h.z)  # Visual local +Z faces the direction of travel
-	visual.rotation.y = lerp_angle(visual.rotation.y, target, clampf(TURN_RATE * dt, 0.0, 1.0))
+	if on:
+		# Where the body points once it lets go: into the face it is on, whatever the speed.
+		heading = atan2(-wall_node.normal.x, -wall_node.normal.z)
+	elif h.length() >= 0.3:
+		heading = lerp_angle(heading, atan2(h.x, h.z), clampf(TURN_RATE * dt, 0.0, 1.0))
+	var want := Basis(Vector3.UP, heading)  # Visual local +Z faces the direction of travel
+	if on:
+		want = _wall_frame()
+	var k := clampf((WALL_TURN_RATE if on else TURN_RATE) * dt, 0.0, 1.0)
+	# Pivot and hug ramp with the same k as the rotation, so grabbing or leaving a face is one move.
+	wall_pivot = lerpf(wall_pivot, WALL_CRAWL_PIVOT if wall_node.phase == wall_node.Phase.CRAWL else 0.0, k)
+	wall_hug = lerpf(wall_hug, wall_node.rest_gap - WALL_HUG if on else 0.0, k)
+	var b := visual.basis.slerp(want, k)
+	var pivot := Vector3(0.0, wall_pivot, 0.0)
+	visual.transform = Transform3D(b, pivot - b * pivot - wall_node.normal * wall_hug)
+
+
+## Body frame on the face, built from the live normal so a slanted or tilted face tilts the body
+## with it. RUN stands on the face: the body's up is the normal, so its "down" is into the surface
+## and the feet stay planted; the chest follows travel along the face. CRAWL clings chest-first:
+## the body's +Z is the inward normal and its up runs along the face.
+func _wall_frame() -> Basis:
+	var n: Vector3 = wall_node.normal
+	var hv: Vector3 = wall_node.wall_vel - n * wall_node.wall_vel.dot(n)
+	if hv.length() > 0.5:
+		wall_fwd = hv.normalized()
+	var face: Vector3 = wall_fwd - n * wall_fwd.dot(n)
+	if face.length_squared() < 0.01:
+		face = Vector3.UP - n * n.y
+	face = face.normalized()
+	if wall_node.phase == wall_node.Phase.CRAWL:
+		var along: Vector3 = Vector3.UP - n * n.y
+		if along.length_squared() < 0.01:
+			along = face
+		along = along.normalized()
+		return Basis(along.cross(-n), along, -n)
+	return Basis(n.cross(face), n, face)
 
 
 ## Cosmetic only: lean the body along the live web, so a swing pitches toward the anchor and
@@ -691,24 +738,38 @@ func _play_ground_clip(s: State) -> void:
 		State.SWING_DOWN: clip = "swing_down_%d" % _web_count()
 		State.SWING_JUMP: clip = "swing_jump"
 		State.ZIP: clip = "zip"
+		# WALL RUN has no clip of its own: it is the run stride, re-aimed at the face by the body frame.
+		State.WALL_RUN: clip = "run"
+		State.WALL_CRAWL: clip = "wall_crawl"
+		State.WALL_JUMP: clip = "wall_jump"
+		State.WALL_EDGE_UP: clip = "wall_edge_up"
+		State.WALL_EDGE_DOWN: clip = "wall_edge_down"
 		_:
 			return
 	if anim.has_animation("moves/" + clip):
 		# Impact states snap; the ground trio keeps the slower blend.
-		var snap: bool = s == State.JUMP or s == State.LAND or s == State.SWING_JUMP
+		var snap: bool = s == State.JUMP or s == State.LAND or s == State.SWING_JUMP or s == State.WALL_JUMP
 		var fade: float = ANIM_SNAP if snap else ANIM_FADE
 		anim.play("moves/" + clip, fade)
 
 
-## Playback follows real ground speed, so 5 m/s reads as a walk and 9 m/s as a run.
+## Playback follows real ground speed, so 5 m/s reads as a walk and 9 m/s as a run. On a face the
+## same rule applies to speed ALONG the face: a crawl with no input holds its current pose exactly
+## (speed_scale 0) and picks the motion back up when the body starts moving again.
 func _update_anim(_dt: float) -> void:
 	if anim == null:
 		return
 	if state == State.FALL:
 		# Faster descent advances the fall pose without changing physics or the clip's loop.
 		anim.speed_scale = clampf(0.8 + absf(velocity.y) / 18.0, 0.8, 1.4)
-	elif state == State.SWING_UP or state == State.SWING_DOWN or state == State.SWING_JUMP or state == State.ZIP:
-		# Web clips are short held/looped pose beats; physics and the live web geometry set timing.
+	elif state == State.WALL_CRAWL:
+		var v: float = wall_node.wall_vel.length()
+		anim.speed_scale = 0.0 if v < 0.2 else clampf(ANIM_RATE * v / WALK_SPEED, 0.6, 1.4)
+	elif state == State.WALL_RUN:
+		anim.speed_scale = clampf(ANIM_RATE * wall_node.wall_vel.length() / WALK_SPEED, 0.8, 1.4)
+	elif state == State.SWING_UP or state == State.SWING_DOWN or state == State.SWING_JUMP or state == State.ZIP \
+			or state == State.WALL_JUMP or state == State.WALL_EDGE_UP or state == State.WALL_EDGE_DOWN:
+		# Web clips and the wall one-shots are pose beats: physics and the state window set timing.
 		anim.speed_scale = 1.0
 	else:
 		anim.speed_scale = clampf(ANIM_RATE * Vector2(velocity.x, velocity.z).length() / WALK_SPEED, 0.8, 1.4)

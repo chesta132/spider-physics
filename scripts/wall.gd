@@ -15,6 +15,7 @@ const REACH := 1.0            # m, how far the attach probe looks
 const CRAWL_SPEED := 3.5      # m/s, deliberate crawl speed on the wall
 const RUN_SPEED := 7.5        # m/s, Shift + WASD wall run
 const RUN_MIN := 6.0          # m/s, above this the state is WALL RUN
+const RUN_HOLD := 1.0         # m/s, hysteresis: a run keeps its phase until it drops this far below
 const RUN_G := 2.5            # m/s^2, reduced gravity while running (not a stone)
 const PRESS := 0.8            # m/s, push into the wall so contact is kept
 const JUMP_PUSH := 8.0        # m/s, wall jump away from the normal
@@ -176,7 +177,7 @@ func step(dt: float, body: CharacterBody3D, inp: Vector2, mass: float, jump: boo
 	# FBD: the press is the normal force, friction is what holds the body against gravity.
 	f_wall = normal * (mass * PRESS / maxf(dt, 0.0001))
 	f_grip = Vector3.UP * (mass * G)
-	phase = Phase.RUN if (sprint and moving) or wall_vel.length() > RUN_MIN else Phase.CRAWL
+	phase = Phase.RUN if (sprint and moving) or wall_vel.length() > (RUN_MIN - RUN_HOLD if phase == Phase.RUN else RUN_MIN) else Phase.CRAWL
 	return "run" if phase == Phase.RUN else "crawl"
 
 

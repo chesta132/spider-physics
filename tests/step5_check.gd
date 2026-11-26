@@ -243,21 +243,23 @@ func _initialize() -> void:
 	check("attached before the corner", wall.active())
 	Input.action_press("move_right")
 	var wrapped := false
-	var prev_yaw: float = p.visual.rotation.y
+	var prev_fwd: Vector3 = p.visual.global_transform.basis.z
 	var max_yaw_step := 0.0
 	for i in 140:
 		await physics_frame
-		max_yaw_step = maxf(max_yaw_step, absf(angle_difference(prev_yaw, p.visual.rotation.y)))
-		prev_yaw = p.visual.rotation.y
+		var fwd: Vector3 = p.visual.global_transform.basis.z
+		max_yaw_step = maxf(max_yaw_step, prev_fwd.angle_to(fwd))
+		prev_fwd = fwd
 		if wall.normal.z > 0.9:
 			wrapped = true
 			break
 	Input.action_release("move_right")
 	for i in 25:  # let the visual finish turning onto the new face
 		await physics_frame
-		max_yaw_step = maxf(max_yaw_step, absf(angle_difference(prev_yaw, p.visual.rotation.y)))
-		prev_yaw = p.visual.rotation.y
-	check("corner wrap turns smoothly (max yaw step %.2f rad)" % max_yaw_step, max_yaw_step < 0.6)
+		var fwd: Vector3 = p.visual.global_transform.basis.z
+		max_yaw_step = maxf(max_yaw_step, prev_fwd.angle_to(fwd))
+		prev_fwd = fwd
+	check("corner wrap turns smoothly (max body step %.2f rad)" % max_yaw_step, max_yaw_step < 0.6)
 	check("corner wrap adopts the perpendicular face (normal %s)" % wall.normal, wrapped)
 	check("corner wrap keeps the body on a wall", wall.active())
 	check("corner wrap stays in a wall state (state %s)" % p.STATE_NAMES[p.state], p.state == p.State.WALL_CRAWL or p.state == p.State.WALL_RUN)
@@ -293,7 +295,8 @@ func _initialize() -> void:
 	check("climb-over never teleports (max step %.2f m)" % max_step, max_step < 0.6)
 	check("climb-over ends grounded on the roof (y=%.2f)" % p.global_position.y, p.grounded and p.global_position.y > 19.5)
 
-	# 13. The dummy faces into the wall while crawling, with no roll or pitch
+	# 13. The dummy clings chest-first to the wall while crawling: body +Z is the inward normal and
+	# its up runs along the face, instead of standing upright and facing the wall.
 	p.global_position = Vector3(30, 0.1, -22)
 	p.velocity = Vector3.ZERO
 	for i in 10:
@@ -306,11 +309,9 @@ func _initialize() -> void:
 	Input.action_press("move_forward")
 	for i in 25:
 		await physics_frame
-	var want_yaw := atan2(-wall.normal.x, -wall.normal.z)
-	check("dummy faces into the wall (yaw %.2f vs %.2f)" % [p.visual.rotation.y, want_yaw],
-		absf(angle_difference(p.visual.rotation.y, want_yaw)) < 0.15)
-	check("visual has no roll or pitch on the wall",
-		absf(p.visual.rotation.x) < 0.01 and absf(p.visual.rotation.z) < 0.01)
+	var face: Basis = p.visual.global_transform.basis
+	check("dummy puts its chest on the wall (basis.z . -n = %.2f)" % face.z.dot(-wall.normal), face.z.dot(-wall.normal) > 0.9)
+	check("dummy's up runs along the face (basis.y . up = %.2f)" % face.y.dot(Vector3.UP), face.y.dot(Vector3.UP) > 0.9)
 
 	# 14. Wall jump while still holding into the wall must not re-grab the same face
 	Input.action_press("jump")

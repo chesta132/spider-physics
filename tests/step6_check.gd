@@ -211,7 +211,11 @@ func _initialize() -> void:
 	var sk := _find_skeleton(model)
 	check("model has a skeleton", sk != null)
 	if sk != null:
-		(p.get_node("Visual") as Node3D).rotation.y = 0.0  # measuring the rig, not the current heading
+		# Measuring the rig, not the current heading or a wall frame: drop off any face first, the
+		# body frame is rebuilt from the live wall state every frame.
+		(p.get_node("Wall") as Node3D).call("detach")
+		p.set("heading", 0.0)
+		(p.get_node("Visual") as Node3D).transform = Transform3D.IDENTITY
 		await process_frame
 		# Measure the fitted rest mesh, not a transient landing pose: the animation mixer is cosmetic.
 		var rest_mixer: AnimationPlayer = model.find_child("AnimationPlayer", true, false) as AnimationPlayer
