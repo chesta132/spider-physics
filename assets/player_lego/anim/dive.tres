@@ -121,4 +121,4 @@ tracks/16/enabled = true
 tracks/16/path = NodePath("Skeleton:Root")
 tracks/16/interp = 1
 tracks/16/loop_wrap = true
-tracks/16/keys = PackedFloat32Array(0, 1, 0, 0, 0, 1)
+tracks/16/keys = PackedFloat32Array(0, 1, 0.7, 0, 0, 0.714142843)
