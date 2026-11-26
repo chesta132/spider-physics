@@ -1,202 +1,176 @@
 extends SceneTree
-## Measure a map or character asset before wiring it in.
-## Reports: mesh/collision counts, world AABB (size + origin height), the orientation mix of
-## surface normals, and — for rigged models — the AABB as the renderer actually draws it, computed
-## by pushing every vertex through its bone matrices (the raw mesh AABB is bind-space and lies).
-## Usage: godot --headless -s tools/inspect_asset.gd -- res://assets/maps/scene.gltf
-## Import first if the asset is new: godot --headless --import
+## Author the web-movement clips into the rig's "moves" library: swing_up / swing_down for one and
+## two webs, swing_jump and zip. One Animation per clip, saved under assets/player_lego/anim/ and
+## registered in player_rig.tscn, so the generator never has to re-bake the mesh for a pose tweak.
+## Keys sit only on pose beats (2-3 per clip). A bone the clip never moves still gets one rest key,
+## or the pose of whatever clip played last leaks into it.
+## Re-run: godot --headless -s tools/add_swing_clips.gd
+const RIG := "res://assets/player_lego/player_rig.tscn"
+const DIR := "res://assets/player_lego/anim/"
+const D2R := PI / 180.0
+const BONES := ["Torso", "Head", "Shoulder.L", "Shoulder.R", "UpperArm.L", "UpperArm.R", "Forearm.L",
+	"Forearm.R", "Hand.L", "Hand.R", "Thigh.L", "Thigh.R", "LowerLeg.L", "LowerLeg.R"]
 
-const NORMAL_SAMPLE := 4  # inspect every Nth vertex for the orientation mix; big maps are slow
+## SWING UP: arms up toward the web, chest open, legs trailing and scissoring. 1 web = both hands
+## stacked over one line; 2 webs = the same reach split wide so each hand owns its own line.
+## SWING DOWN: the trough. Same arms, but looser: elbows give, torso extends, legs hang and swing.
+## SWING JUMP: the release beat. Web-side arm trails up behind the body, free arm reaches forward,
+## knees tuck: nothing like the symmetric JUMP launch.
+## ZIP: streamlined tuck, leading arm out along the pull, trailing arm back, knees up.
+const CLIPS := [
+	{"name": "swing_up_1", "len": 0.7, "keys": [
+		[0.0, {"Torso": Vector3(8, 0, 3), "Head": Vector3(-14, 0, 0),
+			"Shoulder.L": Vector3(0, 0, 6), "Shoulder.R": Vector3(0, 0, -6),
+			"UpperArm.L": Vector3(-150, 0, 10), "UpperArm.R": Vector3(-150, 0, -10),
+			"Forearm.L": Vector3(-16, 0, 0), "Forearm.R": Vector3(-16, 0, 0),
+			"Hand.L": Vector3(-10, 0, 0), "Hand.R": Vector3(-10, 0, 0),
+			"Thigh.L": Vector3(-18, 0, 0), "LowerLeg.L": Vector3(38, 0, 0),
+			"Thigh.R": Vector3(18, 0, 0), "LowerLeg.R": Vector3(52, 0, 0)}],
+		[0.35, {"Torso": Vector3(6, 0, -3), "Head": Vector3(-12, 0, 0),
+			"UpperArm.L": Vector3(-146, 0, 10), "UpperArm.R": Vector3(-146, 0, -10),
+			"Forearm.L": Vector3(-22, 0, 0), "Forearm.R": Vector3(-22, 0, 0),
+			"Thigh.L": Vector3(18, 0, 0), "LowerLeg.L": Vector3(52, 0, 0),
+			"Thigh.R": Vector3(-18, 0, 0), "LowerLeg.R": Vector3(38, 0, 0)}]]},
+	{"name": "swing_up_2", "len": 0.7, "keys": [
+		[0.0, {"Torso": Vector3(6, 0, 5), "Head": Vector3(-12, 0, 0),
+			"Shoulder.L": Vector3(0, 0, 10), "Shoulder.R": Vector3(0, 0, -10),
+			"UpperArm.L": Vector3(-140, 0, 38), "UpperArm.R": Vector3(-140, 0, -38),
+			"Forearm.L": Vector3(-22, 0, 0), "Forearm.R": Vector3(-22, 0, 0),
+			"Hand.L": Vector3(-10, 0, 0), "Hand.R": Vector3(-10, 0, 0),
+			"Thigh.L": Vector3(-18, 0, 0), "LowerLeg.L": Vector3(38, 0, 0),
+			"Thigh.R": Vector3(18, 0, 0), "LowerLeg.R": Vector3(52, 0, 0)}],
+		[0.35, {"Torso": Vector3(4, 0, -5), "Head": Vector3(-10, 0, 0),
+			"UpperArm.L": Vector3(-134, 0, 44), "UpperArm.R": Vector3(-134, 0, -44),
+			"Forearm.L": Vector3(-28, 0, 0), "Forearm.R": Vector3(-28, 0, 0),
+			"Thigh.L": Vector3(18, 0, 0), "LowerLeg.L": Vector3(52, 0, 0),
+			"Thigh.R": Vector3(-18, 0, 0), "LowerLeg.R": Vector3(38, 0, 0)}]]},
+	{"name": "swing_down_1", "len": 0.8, "keys": [
+		[0.0, {"Torso": Vector3(-5, 0, 2), "Head": Vector3(-2, 0, 0),
+			"Shoulder.L": Vector3(0, 0, 3), "Shoulder.R": Vector3(0, 0, -3),
+			"UpperArm.L": Vector3(-156, 0, 12), "UpperArm.R": Vector3(-156, 0, -12),
+			"Forearm.L": Vector3(-34, 0, 0), "Forearm.R": Vector3(-34, 0, 0),
+			"Hand.L": Vector3(-4, 0, 0), "Hand.R": Vector3(-4, 0, 0),
+			"Thigh.L": Vector3(24, 0, 0), "LowerLeg.L": Vector3(58, 0, 0),
+			"Thigh.R": Vector3(6, 0, 0), "LowerLeg.R": Vector3(40, 0, 0)}],
+		[0.4, {"Torso": Vector3(-9, 0, -2), "Head": Vector3(2, 0, 0),
+			"UpperArm.L": Vector3(-148, 0, 12), "UpperArm.R": Vector3(-148, 0, -12),
+			"Forearm.L": Vector3(-42, 0, 0), "Forearm.R": Vector3(-42, 0, 0),
+			"Thigh.L": Vector3(6, 0, 0), "LowerLeg.L": Vector3(40, 0, 0),
+			"Thigh.R": Vector3(26, 0, 0), "LowerLeg.R": Vector3(62, 0, 0)}]]},
+	{"name": "swing_down_2", "len": 0.8, "keys": [
+		[0.0, {"Torso": Vector3(-6, 0, 5), "Head": Vector3(0, 0, 0),
+			"Shoulder.L": Vector3(0, 0, 8), "Shoulder.R": Vector3(0, 0, -8),
+			"UpperArm.L": Vector3(-116, 0, 48), "UpperArm.R": Vector3(-116, 0, -48),
+			"Forearm.L": Vector3(-28, 0, 0), "Forearm.R": Vector3(-28, 0, 0),
+			"Hand.L": Vector3(0, 0, 0), "Hand.R": Vector3(0, 0, 0),
+			"Thigh.L": Vector3(22, 0, 0), "LowerLeg.L": Vector3(56, 0, 0),
+			"Thigh.R": Vector3(4, 0, 0), "LowerLeg.R": Vector3(38, 0, 0)}],
+		[0.4, {"Torso": Vector3(-10, 0, -5), "Head": Vector3(4, 0, 0),
+			"UpperArm.L": Vector3(-110, 0, 46), "UpperArm.R": Vector3(-110, 0, -46),
+			"Forearm.L": Vector3(-36, 0, 0), "Forearm.R": Vector3(-36, 0, 0),
+			"Thigh.L": Vector3(4, 0, 0), "LowerLeg.L": Vector3(38, 0, 0),
+			"Thigh.R": Vector3(24, 0, 0), "LowerLeg.R": Vector3(60, 0, 0)}]]},
+	{"name": "swing_jump", "len": 0.6, "loop_from": 0.4,
+		# Launch pose held for 0.2 s, blends into the clip below by 0.4 s, which then loops. Godot can't loop part of a clip, so
+		# the clip itself is LOOP_NONE and player_controller.gd restarts it at loop_from.
+		"intro": [0.2, {"Torso": Vector3(42, 0, 0), "Head": Vector3(-18, 0, 0),
+			"UpperArm.L": Vector3(-48, 0, -8), "UpperArm.R": Vector3(-48, 0, 8),
+			"Forearm.L": Vector3(-22, 0, -8), "Forearm.R": Vector3(-22, 0, 8),
+			"Hand.L": Vector3(-8, 0, 0), "Hand.R": Vector3(-8, 0, 0),
+			"Thigh.L": Vector3(-10, 0, 68), "LowerLeg.L": Vector3(20, 0, -12),
+			"Thigh.R": Vector3(-30, 0, -62), "LowerLeg.R": Vector3(55, 0, 50)}],
+		"keys": [
+		[0.0, {"Torso": Vector3(-10, 0, 8), "Head": Vector3(6, 0, -4),
+			"Shoulder.L": Vector3(0, 0, 8), "Shoulder.R": Vector3(0, 0, -4),
+			"UpperArm.L": Vector3(-168, 0, 20), "UpperArm.R": Vector3(-40, 0, -34),
+			"Forearm.L": Vector3(-34, 0, 0), "Forearm.R": Vector3(-26, 0, 0),
+			"Hand.L": Vector3(-14, 0, 0), "Hand.R": Vector3(-8, 0, 0),
+			"Thigh.L": Vector3(-48, 0, 6), "LowerLeg.L": Vector3(88, 0, 0),
+			"Thigh.R": Vector3(-14, 0, 0), "LowerLeg.R": Vector3(40, 0, 0)}],
+		[0.3, {"Torso": Vector3(-6, 0, 6), "Head": Vector3(4, 0, -3),
+			"UpperArm.L": Vector3(-158, 0, 18), "UpperArm.R": Vector3(-46, 0, -30),
+			"Forearm.L": Vector3(-42, 0, 0), "Forearm.R": Vector3(-20, 0, 0),
+			"Thigh.L": Vector3(-40, 0, 4), "LowerLeg.L": Vector3(80, 0, 0),
+			"Thigh.R": Vector3(-20, 0, 0), "LowerLeg.R": Vector3(48, 0, 0)}]]},
+	{"name": "zip", "len": 0.5, "keys": [
+		[0.0, {"Torso": Vector3(20, 0, 0), "Head": Vector3(-24, 0, 0),
+			"Shoulder.R": Vector3(0, 0, -6),
+			"UpperArm.R": Vector3(-96, 0, -6), "Forearm.R": Vector3(-12, 0, 0), "Hand.R": Vector3(-6, 0, 0),
+			"UpperArm.L": Vector3(48, 0, 14), "Forearm.L": Vector3(-18, 0, 0),
+			"Thigh.L": Vector3(-38, 0, 0), "LowerLeg.L": Vector3(78, 0, 0),
+			"Thigh.R": Vector3(-22, 0, 0), "LowerLeg.R": Vector3(62, 0, 0)}],
+		[0.25, {"Torso": Vector3(16, 0, 0), "Head": Vector3(-20, 0, 0),
+			"UpperArm.R": Vector3(-90, 0, -6),
+			"Thigh.L": Vector3(-32, 0, 0), "LowerLeg.L": Vector3(70, 0, 0),
+			"Thigh.R": Vector3(-26, 0, 0), "LowerLeg.R": Vector3(66, 0, 0)}]]},
+]
 
-var _path := ""
-var _root: Node
-var _frames := 0
+var _sk: Skeleton3D
 
 
 func _initialize() -> void:
-	var args := OS.get_cmdline_user_args()
-	if args.is_empty():
-		print("usage: godot --headless -s tools/inspect_asset.gd -- <path>")
-		quit(1)
-		return
-	_path = args[0]
-	var ps := load(_path) as PackedScene
-	if ps == null:
-		print("NOT a PackedScene (imported yet?): ", _path)
-		quit(1)
-		return
-	_root = ps.instantiate()
-	get_root().add_child(_root)
+	var rig := (load(RIG) as PackedScene).instantiate()
+	_sk = rig.find_child("Skeleton", true, false) as Skeleton3D
+	DirAccess.make_dir_recursive_absolute(DIR)
+	var ok := true
+	for c in CLIPS:
+		var a := _clip(c)
+		var path: String = DIR + c["name"] + ".tres"
+		var err := ResourceSaver.save(a, path)
+		ok = ok and err == OK
+		print("CLIP %-12s len %.2f s keys %d tracks %d loop %d -> %s" % [
+			c["name"], a.length, _keys(a), a.get_track_count(), a.loop_mode, path])
+	rig.free()
+	print("RESULT ", "saved" if ok else "FAILED")
+	quit(0 if ok else 1)
 
 
-func _process(_d: float) -> bool:
-	_frames += 1
-	if _frames < 2:
-		return false  # global transforms only resolve once inside the tree
-	_report(_root, _path)
-	return true
-
-
-func _report(root: Node, path: String) -> void:
-	print("=== ", path)
-	var aabb := AABB()
-	var has_box := false
-	var meshes := 0
-	var tris := 0
-	var shapes := 0
-	var bodies := 0
-	var skins := 0
-	var n_up := 0
-	var n_down := 0
-	var n_vert := 0
-	var n_slope := 0
-	var groups := {}
-
-	var stack: Array = [root]
-	while not stack.is_empty():
-		var n: Node = stack.pop_back()
-		if n is CollisionObject3D:
-			bodies += 1
-		if n is CollisionShape3D:
-			shapes += 1
-		if n is Skeleton3D:
-			var sk := n as Skeleton3D
-			var bones := AABB()
-			var first := true
-			for i in sk.get_bone_count():
-				var p := sk.global_transform * sk.get_bone_global_rest(i).origin
-				bones = AABB(p, Vector3.ZERO) if first else bones.expand(p)
-				first = false
-			print("skeleton: %d bones  rest bone AABB min %s max %s size %s" % [
-				sk.get_bone_count(), bones.position, bones.end, bones.size])
-		if n is MeshInstance3D and (n as MeshInstance3D).mesh:
-			meshes += 1
-			var mi := n as MeshInstance3D
-			var box := _world_aabb(mi)
-			aabb = box if not has_box else aabb.merge(box)
-			has_box = true
-			var key: String = _group_of(_branch_root(root), mi)
-			var g: Array = groups.get(key, [AABB(), true, 0])
-			g[0] = box if g[1] else (g[0] as AABB).merge(box)
-			g[1] = false
-			g[2] = int(g[2]) + 1
-			groups[key] = g
-			if mi.skin:
-				skins += 1
-			for s in mi.mesh.get_surface_count():
-				var arr := mi.mesh.surface_get_arrays(s)
-				var v: PackedVector3Array = arr[Mesh.ARRAY_VERTEX]
-				var nr: PackedVector3Array = arr[Mesh.ARRAY_NORMAL]
-				var idx = arr[Mesh.ARRAY_INDEX]
-				tris += (idx.size() if idx != null and idx.size() > 0 else v.size()) / 3
-				var i := 0
-				while i < nr.size():
-					var ny := absf(nr[i].y)
-					if ny > 0.94:
-						if nr[i].y > 0.0:
-							n_up += 1
-						else:
-							n_down += 1
-					elif ny < 0.35:
-						n_vert += 1
-					else:
-						n_slope += 1
-					i += NORMAL_SAMPLE
-		for c in n.get_children():
-			stack.append(c)
-
-	print("meshes: %d  tris: %d  skinned: %d  collision bodies: %d  shapes: %d" % [meshes, tris, skins, bodies, shapes])
-	if has_box:
-		print("AABB min: %s  max: %s" % [aabb.position, aabb.end])
-		print("size (x,y,z metres): %s" % [aabb.size])
-		print("lowest y = %.3f  ->  %s" % [aabb.position.y, _origin_hint(aabb)])
-	else:
-		print("AABB: no meshes found")
-	var total := n_up + n_down + n_vert + n_slope
-	if total > 0:
-		print("normals: up %.1f%%  down %.1f%%  vertical %.1f%%  sloped %.1f%%  (sampled)" % [
-			100.0 * n_up / total, 100.0 * n_down / total, 100.0 * n_vert / total, 100.0 * n_slope / total])
-		print("verdict: ", _verdict(bodies, shapes, n_vert, n_slope, total))
-	if groups.size() > 1:
-		print("--- top-level groups (%d) ---" % groups.size())
-		var keys := groups.keys()
-		keys.sort()
-		for k in keys:
-			var g: Array = groups[k]
-			var b: AABB = g[0]
-			print("  %-26s %4d meshes  min %s  size %s" % [k, g[2], _v(b.position), _v(b.size)])
-
-
-## AABB as drawn: for a skinned mesh the raw mesh bounds are bind-space and wrong, so transform
-## every vertex by its bone matrices (global rest * inverse bind) first.
-func _world_aabb(mi: MeshInstance3D) -> AABB:
-	var sk := mi.get_node_or_null(mi.skeleton) as Skeleton3D
-	var skin := mi.skin
-	if sk == null or skin == null:
-		return mi.global_transform * mi.mesh.get_aabb()
-	var mats: Array[Transform3D] = []
-	for i in skin.get_bind_count():
-		var bi := skin.get_bind_bone(i)
-		if bi < 0:
-			bi = sk.find_bone(skin.get_bind_name(i))  # importer uses named binds
-		# one entry per bind index: ARRAY_BONES indexes this list, not the bone ids
-		mats.append(sk.get_bone_global_rest(bi) * skin.get_bind_pose(i) if bi >= 0 else Transform3D.IDENTITY)
-	var base := sk.global_transform
-	var out := AABB()
-	var first := true
-	for s in mi.mesh.get_surface_count():
-		var arr := mi.mesh.surface_get_arrays(s)
-		var verts: PackedVector3Array = arr[Mesh.ARRAY_VERTEX]
-		var bones = arr[Mesh.ARRAY_BONES]
-		var weights = arr[Mesh.ARRAY_WEIGHTS]
-		if bones == null or weights == null:
-			continue
-		for vi in verts.size():
-			var p := Vector3.ZERO
-			for k in 4:
-				var bi: int = bones[vi * 4 + k]
-				var w: float = weights[vi * 4 + k]
-				if w > 0.0 and bi >= 0 and bi < mats.size():
-					p += (mats[bi] * verts[vi]) * w
-			p = base * p
-			out = AABB(p, Vector3.ZERO) if first else out.expand(p)
-			first = false
-	return out
-
-
-## Sketchfab wraps everything in a single-child chain (Sketchfab_model → map1.fbx → RootNode →
-## map1). Walk past it so the groups are the real content buckets.
-func _branch_root(n: Node) -> Node:
-	while n.get_child_count() == 1:
-		n = n.get_child(0)
+func _keys(a: Animation) -> int:
+	var n := 0
+	for t in a.get_track_count():
+		n += a.track_get_key_count(t)
 	return n
 
 
-func _group_of(branch: Node, n: Node) -> String:
-	var cur := n
-	while cur and cur.get_parent() != branch:
-		cur = cur.get_parent()
-	return str(cur.name) if cur else str(n.name)
-
-
-func _v(v: Vector3) -> String:
-	return "(%.1f, %.1f, %.1f)" % [v.x, v.y, v.z]
-
-
-func _origin_hint(aabb: AABB) -> String:
-	if absf(aabb.position.y) < 0.05:
-		return "origin at ground level (feet-at-0 convention)"
-	if aabb.position.y < 0.0:
-		return "sinks %.2f m below y=0 — origin is not at the feet" % -aabb.position.y
-	return "floats %.2f m above y=0 — needs a -%.2f m offset" % [aabb.position.y, aabb.position.y]
-
-
-func _verdict(bodies: int, shapes: int, vert: int, slope: int, total: int) -> String:
-	var out := ""
-	if bodies == 0 or shapes == 0:
-		out += "NO COLLISION -> generate it. "
-	if total > 0 and float(vert) / total < 0.15:
-		out += "few vertical faces -> little to crawl/zip on. "
-	if total > 0 and float(slope) / total > 0.25:
-		out += "many sloped faces -> wall attach (|n.y|<=0.35) will refuse them. "
-	return out if out != "" else "geometry looks usable for zip/wall."
+func _clip(c: Dictionary) -> Animation:
+	var a := Animation.new()
+	var lead: float = c.get("loop_from", 0.0)  # loop keys start here (after an intro pose)
+	var intro: Array = c.get("intro", [])
+	a.length = lead + c["len"]
+	a.loop_mode = Animation.LOOP_NONE if not intro.is_empty() else Animation.LOOP_LINEAR
+	var times: Array = []
+	for k in c["keys"]:
+		times.append(k[0])
+	times.append(float(c["len"]))  # loop closes on the first pose
+	var tracks := {}
+	for b in BONES:
+		tracks[b] = a.add_track(Animation.TYPE_ROTATION_3D)
+		a.track_set_path(tracks[b], "Skeleton:" + b)
+	var hips := a.add_track(Animation.TYPE_POSITION_3D)
+	a.track_set_path(hips, "Skeleton:Hips")
+	var head := a.add_track(Animation.TYPE_POSITION_3D)
+	a.track_set_path(head, "Skeleton:Head")
+	a.position_track_insert_key(hips, 0.0, _sk.get_bone_rest(_sk.find_bone("Hips")).origin)
+	a.position_track_insert_key(head, 0.0, _sk.get_bone_rest(_sk.find_bone("Head")).origin)
+	for b in BONES:
+		var moved := false
+		for k in c["keys"]:
+			if (k[1] as Dictionary).has(b):
+				moved = true
+				break
+		if not intro.is_empty() and (intro[1] as Dictionary).has(b):
+			moved = true
+		if not moved:
+			a.rotation_track_insert_key(tracks[b], 0.0, Quaternion.IDENTITY)  # rest, not last clip's pose
+			continue
+		if not intro.is_empty():
+			var ipose: Vector3 = (intro[1] as Dictionary).get(b, Vector3.ZERO)
+			var iq := Quaternion.from_euler(ipose * D2R)
+			a.rotation_track_insert_key(tracks[b], 0.0, iq)
+			a.rotation_track_insert_key(tracks[b], float(intro[0]), iq)
+		for i in times.size():
+			var t: float = lead + times[i]
+			var pose: Dictionary = c["keys"][i % c["keys"].size()][1] if i < c["keys"].size() else c["keys"][0][1]
+			var deg: Vector3 = pose.get(b, Vector3.ZERO)
+			a.rotation_track_insert_key(tracks[b], t, Quaternion.from_euler(deg * D2R))
+	return a

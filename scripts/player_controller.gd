@@ -50,6 +50,7 @@ const WALL_ATTACH_SPEED := 3.0  # m/s, grounded attach needs at least this much 
 const FLY_SPEED := 14.0      # m/s, dev noclip only
 const ANIM_FADE := 0.18      # s, crossfade between the grounded clips (idle/walk/run)
 const ANIM_SNAP := 0.10      # s, faster blend into the held jump / landing poses
+const SWING_JUMP_LOOP_START := 0.4  # s, swing_jump = 0.2 s launch pose + 0.2 s blend, then loops from here to the end
 const ANIM_RATE := 0.9       # clip seconds per second at walk speed; scaled by actual ground speed
 const LEAN_PITCH := 35.0     # deg, biggest torso pitch toward the web anchor
 const LEAN_BANK := 25.0      # deg, biggest roll into the swing arc
@@ -118,6 +119,19 @@ const CRACK_LIFE := 1.6
 @onready var wall_node = $Wall
 @onready var cam_ref: Camera3D = $Pivot/Pitch/Arm/Camera
 @onready var state_label: Label3D = $StateLabel
+
+
+func _ready() -> void:
+	if anim:
+		anim.animation_finished.connect(_on_anim_finished)
+
+
+## Godot only loops a whole clip, so swing_jump (launch pose + loop) is not set to loop: when it
+## runs out while still swinging-jumping, restart it past the launch pose.
+func _on_anim_finished(clip: StringName) -> void:
+	if state == State.SWING_JUMP and String(clip).ends_with("swing_jump"):
+		anim.play(clip, 0.0)
+		anim.seek(SWING_JUMP_LOOP_START, true)
 
 
 func _physics_process(dt: float) -> void:

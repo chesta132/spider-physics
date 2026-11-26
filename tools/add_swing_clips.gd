@@ -70,7 +70,16 @@ const CLIPS := [
 			"Forearm.L": Vector3(-36, 0, 0), "Forearm.R": Vector3(-36, 0, 0),
 			"Thigh.L": Vector3(4, 0, 0), "LowerLeg.L": Vector3(38, 0, 0),
 			"Thigh.R": Vector3(24, 0, 0), "LowerLeg.R": Vector3(60, 0, 0)}]]},
-	{"name": "swing_jump", "len": 0.6, "keys": [
+	{"name": "swing_jump", "len": 0.6, "loop_from": 0.201,
+		# Launch pose held for 0.2 s, then the clip below loops. Godot can't loop part of a clip, so
+		# the clip itself is LOOP_NONE and player_controller.gd restarts it at loop_from.
+		"intro": [0.2, {"Torso": Vector3(42, 0, 0), "Head": Vector3(-18, 0, 0),
+			"UpperArm.L": Vector3(-48, 0, -8), "UpperArm.R": Vector3(-48, 0, 8),
+			"Forearm.L": Vector3(-22, 0, -8), "Forearm.R": Vector3(-22, 0, 8),
+			"Hand.L": Vector3(-8, 0, 0), "Hand.R": Vector3(-8, 0, 0),
+			"Thigh.L": Vector3(-10, 0, 68), "LowerLeg.L": Vector3(20, 0, -12),
+			"Thigh.R": Vector3(-30, 0, -62), "LowerLeg.R": Vector3(55, 0, 50)}],
+		"keys": [
 		[0.0, {"Torso": Vector3(-10, 0, 8), "Head": Vector3(6, 0, -4),
 			"Shoulder.L": Vector3(0, 0, 8), "Shoulder.R": Vector3(0, 0, -4),
 			"UpperArm.L": Vector3(-168, 0, 20), "UpperArm.R": Vector3(-40, 0, -34),
@@ -125,8 +134,10 @@ func _keys(a: Animation) -> int:
 
 func _clip(c: Dictionary) -> Animation:
 	var a := Animation.new()
-	a.length = c["len"]
-	a.loop_mode = Animation.LOOP_LINEAR
+	var lead: float = c.get("loop_from", 0.0)  # loop keys start here (after an intro pose)
+	var intro: Array = c.get("intro", [])
+	a.length = lead + c["len"]
+	a.loop_mode = Animation.LOOP_NONE if not intro.is_empty() else Animation.LOOP_LINEAR
 	var times: Array = []
 	for k in c["keys"]:
 		times.append(k[0])
@@ -147,11 +158,18 @@ func _clip(c: Dictionary) -> Animation:
 			if (k[1] as Dictionary).has(b):
 				moved = true
 				break
+		if not intro.is_empty() and (intro[1] as Dictionary).has(b):
+			moved = true
 		if not moved:
 			a.rotation_track_insert_key(tracks[b], 0.0, Quaternion.IDENTITY)  # rest, not last clip's pose
 			continue
+		if not intro.is_empty():
+			var ipose: Vector3 = (intro[1] as Dictionary).get(b, Vector3.ZERO)
+			var iq := Quaternion.from_euler(ipose * D2R)
+			a.rotation_track_insert_key(tracks[b], 0.0, iq)
+			a.rotation_track_insert_key(tracks[b], float(intro[0]), iq)
 		for i in times.size():
-			var t: float = times[i]
+			var t: float = lead + times[i]
 			var pose: Dictionary = c["keys"][i % c["keys"].size()][1] if i < c["keys"].size() else c["keys"][0][1]
 			var deg: Vector3 = pose.get(b, Vector3.ZERO)
 			a.rotation_track_insert_key(tracks[b], t, Quaternion.from_euler(deg * D2R))
