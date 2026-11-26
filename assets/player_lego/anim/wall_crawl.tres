@@ -1,4 +1,4 @@
-[gd_resource type="Animation" format=3]
+[gd_resource type="Animation" format=3 uid="uid://170nd20mxcsr"]
 
 [resource]
 length = 0.9
@@ -9,7 +9,7 @@ tracks/0/enabled = true
 tracks/0/path = NodePath("Skeleton:Torso")
 tracks/0/interp = 1
 tracks/0/loop_wrap = true
-tracks/0/keys = PackedFloat32Array(0, 1, 0.08703629, -0.004561379, 0.052136805, 0.9948294, 0.45, 1, 0.08703629, 0.004561379, -0.052136805, 0.9948294, 0.9, 1, 0.08703629, -0.004561379, 0.052136805, 0.9948294)
+tracks/0/keys = PackedFloat32Array(0, 1, 0.0435596085, -0.00228286221, 0.0522861443, 0.997679061, 0.45, 1, 0.0435596085, 0.00228286221, -0.0522861443, 0.997679061, 0.9, 1, 0.0435596085, -0.00228286221, 0.0522861443, 0.997679061)
 tracks/1/type = "rotation_3d"
 tracks/1/imported = false
 tracks/1/enabled = true
@@ -79,14 +79,14 @@ tracks/10/enabled = true
 tracks/10/path = NodePath("Skeleton:Thigh.L")
 tracks/10/interp = 1
 tracks/10/loop_wrap = true
-tracks/10/keys = PackedFloat32Array(0, 1, 0.13883409, -0.009708225, 0.0690776, 0.98785585, 0.45, 1, -0.22409506, 0.019605774, 0.08492194, 0.9706623, 0.9, 1, 0.13883409, -0.009708225, 0.0690776, 0.98785585)
+tracks/10/keys = PackedFloat32Array(0, 1, -0.0695865245, 0.00486596216, 0.0695865436, 0.995134037, 0.45, 1, -0.421010072, 0.0368336047, 0.0789899228, 0.902859013, 0.9, 1, -0.0695865245, 0.00486596216, 0.0695865436, 0.995134037)
 tracks/11/type = "rotation_3d"
 tracks/11/imported = false
 tracks/11/enabled = true
 tracks/11/path = NodePath("Skeleton:Thigh.R")
 tracks/11/interp = 1
 tracks/11/loop_wrap = true
-tracks/11/keys = PackedFloat32Array(0, 1, -0.22409506, -0.019605774, -0.08492194, 0.9706623, 0.45, 1, 0.13883409, 0.009708225, -0.0690776, 0.98785585, 0.9, 1, -0.22409506, -0.019605774, -0.08492194, 0.9706623)
+tracks/11/keys = PackedFloat32Array(0, 1, -0.421010072, -0.0368336047, -0.0789899228, 0.902859013, 0.45, 1, -0.0695865245, -0.00486596216, -0.0695865436, 0.995134037, 0.9, 1, -0.421010072, -0.0368336047, -0.0789899228, 0.902859013)
 tracks/12/type = "rotation_3d"
 tracks/12/imported = false
 tracks/12/enabled = true
@@ -122,3 +122,10 @@ tracks/16/path = NodePath("Skeleton:Root")
 tracks/16/interp = 1
 tracks/16/loop_wrap = true
 tracks/16/keys = PackedFloat32Array(0, 1, 0, 0, 0, 1)
+tracks/17/type = "position_3d"
+tracks/17/imported = false
+tracks/17/enabled = true
+tracks/17/path = NodePath("Skeleton:Root")
+tracks/17/interp = 1
+tracks/17/loop_wrap = true
+tracks/17/keys = PackedFloat32Array(0, 1, 0.00041557942, 0.73932517, -0.25)
