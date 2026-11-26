@@ -134,6 +134,7 @@ func _ready() -> void:
 		# The first play of this external clip makes AnimationPlayer build its track cache. Do that
 		# before the first frame, rather than during the player's first swing jump.
 		_prewarm_animation("moves/swing_jump")
+	state_label.visible = OS.is_debug_build()
 
 
 func _prewarm_animation(path: String) -> void:
