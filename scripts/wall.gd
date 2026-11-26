@@ -200,4 +200,5 @@ func top_edge(body: CharacterBody3D) -> Vector3:
 
 ## Where to stand once over the top: on the roof, a little in from the edge.
 func roof_stand(roof: Vector3) -> Vector3:
-	return roof + Vector3.UP * 0.05 - normal * 0.35
+	# normal points out from the building; stand on the safe/outside side, not inside it.
+	return roof + Vector3.UP * 0.05 + normal * 0.35
