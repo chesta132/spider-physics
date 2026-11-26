@@ -1,0 +1,72 @@
+name: Build and Release SpiderPhysics
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Godot
+        uses: chickensoft-games/setup-godot@v2
+        with:
+          version: 4.7.0
+          use-dotnet: false
+
+      - name: Prepare output directories
+        run: |
+          mkdir -p build/windows build/linux
+
+      - name: Export Windows (.exe)
+        run: |
+          godot --headless --export-release "Windows Desktop" build/windows/SpiderPhysics.exe
+
+      - name: Export Linux binary
+        run: |
+          godot --headless --export-release "Linux" build/linux/SpiderPhysics.x86_64
+
+      - name: Package Linux into .AppImage
+        run: |
+          wget -q https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage -O appimagetool
+          chmod +x appimagetool
+          mkdir -p AppDir/usr/bin
+          cp build/linux/SpiderPhysics.x86_64 AppDir/usr/bin/SpiderPhysics
+          # Copy file .pck secara otomatis jika tidak di-embed di export_presets.cfg
+          if [ -f build/linux/SpiderPhysics.pck ]; then
+            cp build/linux/SpiderPhysics.pck AppDir/usr/bin/SpiderPhysics.pck
+          fi
+          cat << 'EOF' > AppDir/AppRun
+          #!/bin/sh
+          exec "$APPDIR/usr/bin/SpiderPhysics" "$@"
+          EOF
+          chmod +x AppDir/AppRun
+          cat << 'EOF' > AppDir/SpiderPhysics.desktop
+          [Desktop Entry]
+          Type=Application
+          Name=SpiderPhysics
+          Exec=SpiderPhysics
+          Icon=spiderphysics
+          Categories=Game;
+          EOF
+          touch AppDir/spiderphysics.png
+          ARCH=x86_64 ./appimagetool --appimage-extract-and-run AppDir build/linux/SpiderPhysics-x86_64.AppImage
+
+      - name: Zip Windows build
+        run: |
+          cd build/windows && zip -r ../SpiderPhysics-Windows.zip .
+
+      - name: Create GitHub Release & Upload Assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            build/SpiderPhysics-Windows.zip
+            build/linux/SpiderPhysics-x86_64.AppImage
+          generate_release_notes: true
