@@ -15,6 +15,7 @@ const HELP_ROWS := [
 	["LEFT CTRL", "Zip to target"],
 	["MOUSE WHEEL", "Zoom camera"],
 	["ESC", "Pause / resume game"],
+	["F3", "Physics menu"]
 ]
 
 @export var play_text := "PLAY"
