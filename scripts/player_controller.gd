@@ -135,6 +135,8 @@ func _ready() -> void:
 		# before the first frame, rather than during the player's first swing jump.
 		_prewarm_animation("moves/swing_jump")
 	state_label.visible = OS.is_debug_build()
+	web_l.side = -1.0
+	web_r.side = 1.0
 
 
 func _prewarm_animation(path: String) -> void:
