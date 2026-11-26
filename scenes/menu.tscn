@@ -43,7 +43,7 @@ light_color = Color(0.65, 0.75, 1, 1)
 light_energy = 0.8
 
 [node name="City" type="Node3D" parent="."]
-position = Vector3(0, 1.5, -80)
+position = Vector3(0, -100.5, -80)
 scale = Vector3(0.7, 0.7, 0.7)
 
 [node name="Map" parent="City" instance=ExtResource("2")]
@@ -55,7 +55,7 @@ current = true
 
 [node name="Avatar" type="Node3D" parent="."]
 position = Vector3(5.5, 0.0, 7.5)
-rotation_degrees = Vector3(0, 0, 0)
+rotation_degrees = Vector3(0, -30, 0)
 scale = Vector3(2.0, 2.0, 2.0)
 
 [node name="Rig" parent="Avatar" instance=ExtResource("3")]
@@ -98,13 +98,6 @@ theme_override_font_sizes/font_size = 30
 theme_override_styles/normal = SubResource("button")
 theme_override_styles/hover = SubResource("hover")
 text = "PLAY"
-
-[node name="Settings" type="Button" parent="UI/Margin/VBox/Buttons"]
-custom_minimum_size = Vector2(0, 64)
-theme_override_font_sizes/font_size = 30
-theme_override_styles/normal = SubResource("button")
-theme_override_styles/hover = SubResource("hover")
-text = "SETTINGS"
 
 [node name="Bottom" type="HBoxContainer" parent="UI/Margin/VBox"]
 theme_override_constants/separation = 12

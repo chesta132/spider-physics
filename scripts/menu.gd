@@ -9,7 +9,7 @@ const HELP_ROWS := [
 	["SPACE", "Jump · wall jump · release web"],
 	["LEFT CLICK", "Left web"],
 	["RIGHT CLICK", "Right web"],
-	["E", "Zip to target"],
+	["LEFT CTRL", "Zip to target"],
 	["MOUSE WHEEL", "Zoom camera"],
 	["ESC", "Release mouse / pause camera"],
 ]
@@ -21,7 +21,6 @@ var help_popup: PanelContainer
 
 func _ready() -> void:
 	$UI/Margin/VBox/Buttons/Play.pressed.connect(_play)
-	$UI/Margin/VBox/Buttons/Settings.pressed.connect(_settings)
 	$UI/Margin/VBox/Bottom/Help.pressed.connect(_help)
 	$UI/Margin/VBox/Bottom/Quit.pressed.connect(_quit)
 	splash.pressed.connect(_open_splash)
@@ -42,9 +41,6 @@ func _unhandled_input(event: InputEvent) -> void:
 
 func _play() -> void:
 	get_tree().change_scene_to_file(GAME_SCENE)
-
-func _settings() -> void:
-	$UI/Margin/VBox/Buttons/Settings.text = "SETTINGS (COMING SOON)"
 
 func _help() -> void:
 	if help_popup:
