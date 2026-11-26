@@ -21,6 +21,17 @@ jobs:
           version: 4.7.0
           use-dotnet: false
 
+      - name: Install Godot Export Templates
+        run: |
+          GODOT_VERSION="4.7-stable"
+          TEMPLATE_DIR="$HOME/.local/share/godot/export_templates/4.7.stable"
+          mkdir -p "$TEMPLATE_DIR"
+          wget -q "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}/Godot_v${GODOT_VERSION}_export_templates.tpz" -O templates.zip
+          unzip -q templates.zip -d temp_templates
+          mv temp_templates/templates/* "$TEMPLATE_DIR/"
+          rm -rf templates.zip temp_templates
+          ls -la "$TEMPLATE_DIR"
+
       - name: Prepare output directories
         run: |
           mkdir -p build/windows build/linux
