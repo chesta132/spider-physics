@@ -11,7 +11,7 @@ const HELP_ROWS := [
 	["RIGHT CLICK", "Right web"],
 	["LEFT CTRL", "Zip to target"],
 	["MOUSE WHEEL", "Zoom camera"],
-	["ESC", "Release mouse / pause camera"],
+	["ESC", "Pause / resume game"],
 ]
 
 @onready var city: Node3D = $City
