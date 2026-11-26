@@ -1,4 +1,4 @@
-[gd_resource type="Animation" format=3]
+[gd_resource type="Animation" format=3 uid="uid://bfopdtdatixyw"]
 
 [resource]
 length = 0.6
@@ -16,7 +16,7 @@ tracks/1/enabled = true
 tracks/1/path = NodePath("Skeleton:Head")
 tracks/1/interp = 1
 tracks/1/loop_wrap = true
-tracks/1/keys = PackedFloat32Array(0, 1, -0.27563736, 0, 0, 0.9612617, 0.3, 1, -0.2419219, 0, 0, 0.9702957, 0.6, 1, -0.27563736, 0, 0, 0.9612617)
+tracks/1/keys = PackedFloat32Array(0, 1, -0.177085, 0, 0, 0.9841956, 0.3, 1, -0.14336954, 0, 0, 0.9896692, 0.6, 1, -0.177085, 0, 0, 0.9841956)
 tracks/2/type = "rotation_3d"
 tracks/2/imported = false
 tracks/2/enabled = true
@@ -79,28 +79,28 @@ tracks/10/enabled = true
 tracks/10/path = NodePath("Skeleton:Thigh.L")
 tracks/10/interp = 1
 tracks/10/loop_wrap = true
-tracks/10/keys = PackedFloat32Array(0, 1, 0.069745846, -0.0012174182, 0.017409893, 0.99741215, 0.3, 1, 0.08714247, -0.0015210772, 0.017385995, 0.996043, 0.6, 1, 0.069745846, -0.0012174182, 0.017409893, 0.99741215)
+tracks/10/keys = PackedFloat32Array(0, 1, 0.54528767, -0.009518031, 0.014628519, 0.8380673, 0.3, 1, 0.5598309, -0.009771884, 0.014460179, 0.8284231, 0.6, 1, 0.54528767, -0.009518031, 0.014628519, 0.8380673)
 tracks/11/type = "rotation_3d"
 tracks/11/imported = false
 tracks/11/enabled = true
 tracks/11/path = NodePath("Skeleton:Thigh.R")
 tracks/11/interp = 1
 tracks/11/loop_wrap = true
-tracks/11/keys = PackedFloat32Array(0, 1, 0.069745846, 0.0012174182, -0.017409893, 0.99741215, 0.3, 1, 0.08714247, 0.0015210772, -0.017385995, 0.996043, 0.6, 1, 0.069745846, 0.0012174182, -0.017409893, 0.99741215)
+tracks/11/keys = PackedFloat32Array(0, 1, 0.54528767, 0.009518031, -0.014628519, 0.8380673, 0.3, 1, 0.5598309, 0.009771884, -0.014460179, 0.8284231, 0.6, 1, 0.54528767, 0.009518031, -0.014628519, 0.8380673)
 tracks/12/type = "rotation_3d"
 tracks/12/imported = false
 tracks/12/enabled = true
 tracks/12/path = NodePath("Skeleton:LowerLeg.L")
 tracks/12/interp = 1
 tracks/12/loop_wrap = true
-tracks/12/keys = PackedFloat32Array(0, 1, 0.034899496, 0, 0, 0.99939084, 0.3, 1, 0.017452406, 0, 0, 0.9998477, 0.6, 1, 0.034899496, 0, 0, 0.99939084)
+tracks/12/keys = PackedFloat32Array(0, 1, 0.13571557, 0, 0, 0.99074787, 0.3, 1, 0.11840397, 0, 0, 0.9929655, 0.6, 1, 0.13571557, 0, 0, 0.99074787)
 tracks/13/type = "rotation_3d"
 tracks/13/imported = false
 tracks/13/enabled = true
 tracks/13/path = NodePath("Skeleton:LowerLeg.R")
 tracks/13/interp = 1
 tracks/13/loop_wrap = true
-tracks/13/keys = PackedFloat32Array(0, 1, 0.034899496, 0, 0, 0.99939084, 0.3, 1, 0.017452406, 0, 0, 0.9998477, 0.6, 1, 0.034899496, 0, 0, 0.99939084)
+tracks/13/keys = PackedFloat32Array(0, 1, 0.13571557, 0, 0, 0.99074787, 0.3, 1, 0.11840397, 0, 0, 0.9929655, 0.6, 1, 0.13571557, 0, 0, 0.99074787)
 tracks/14/type = "position_3d"
 tracks/14/imported = false
 tracks/14/enabled = true
@@ -114,4 +114,4 @@ tracks/15/enabled = true
 tracks/15/path = NodePath("Skeleton:Head")
 tracks/15/interp = 1
 tracks/15/loop_wrap = true
-tracks/15/keys = PackedFloat32Array(0, 1, 7.939525e-08, 0.24470323, -0.0013265396)
+tracks/15/keys = PackedFloat32Array(0, 1, 7.939525e-08, 0.24470323, 0.1)
