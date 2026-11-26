@@ -81,12 +81,6 @@ theme_override_font_sizes/font_size = 54
 text = "SPIDER-PHYSICS"
 horizontal_alignment = 1
 
-[node name="Subtitle" type="Label" parent="UI/Margin/VBox"]
-theme_override_colors/font_color = Color(0.65, 0.75, 0.9, 1)
-theme_override_font_sizes/font_size = 20
-text = "CHARDY'S SWINGING!"
-horizontal_alignment = 1
-
 [node name="Splash" type="Button" parent="UI/Margin/VBox"]
 custom_minimum_size = Vector2(0, 48)
 theme_override_colors/font_color = Color(1, 0.82, 0.12, 1)

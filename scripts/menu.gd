@@ -15,8 +15,9 @@ func _ready() -> void:
 	$UI/Margin/VBox/Bottom/Quit.pressed.connect(_quit)
 	splash.pressed.connect(_open_splash)
 	var idle: AnimationPlayer = avatar.get_node_or_null("Rig/AnimationPlayer")
-	if idle and idle.has_animation("moves/idle"):
+	if idle:
 		idle.play("moves/idle")
+		idle.seek(0.0, true)
 
 func _process(delta: float) -> void:
 	city.rotate_y(delta * 0.012)
