@@ -10,6 +10,7 @@ const HELP_ROWS := [
 	["W / A / S / D", "Move"],
 	["SHIFT", "Sprint / fast dive"],
 	["SPACE", "Jump / wall jump / release web"],
+	["HOLD SPACE", "Charge jump"],
 	["LEFT CLICK", "Left web"],
 	["RIGHT CLICK", "Right web"],
 	["LEFT CTRL", "Zip to target"],
