@@ -3,8 +3,7 @@ extends Node3D
 ## its Spawn marker. With it empty, a procedural greybox is built instead.
 
 @export var map_scene: PackedScene
-var pause_layer: CanvasLayer
-var pause_panel: PanelContainer
+var pause_ui: CanvasLayer
 var pause_camera: Camera3D
 var gameplay_camera: Camera3D
 var pause_tween: Tween
@@ -22,96 +21,61 @@ const BLOCKS := [
 ]
 
 
-func _process(_delta: float) -> void:
-	if Input.is_action_just_pressed("ui_cancel") and not get_tree().paused:
-		_toggle_pause()
 
-func _input(event: InputEvent) -> void:
-	if event.is_action_pressed("ui_cancel") and get_tree().paused:
+func _unhandled_input(event: InputEvent) -> void:
+	if event.is_action_pressed("ui_cancel") and not get_tree().paused:
 		_toggle_pause()
 		get_viewport().set_input_as_handled()
 
 func _toggle_pause() -> void:
-	if not pause_layer:
-		return
 	var opening := not get_tree().paused
 	get_tree().paused = opening
-	pause_layer.visible = opening
+	pause_ui.visible = opening
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE if opening else Input.MOUSE_MODE_CAPTURED
 	if opening:
 		_pause_camera_transition()
 	else:
-		gameplay_camera.current = true
+		_resume_camera_transition()
 
+## Tweens from gameplay view to a camera placed where the start-menu camera sits relative to its avatar
+## (menu.tscn: Avatar at (5.5, 0, 7.5), yaw -30, scale 2; Camera at (0, 4, 14)), applied to the player's
+## Visual node. The camera then looks straight at the spider's chest, so it stays face to face.
 func _pause_camera_transition() -> void:
-	var player := $Player
-	var target := player.global_position + Vector3(3.8, 2.4, 5.2)
-	pause_camera.global_position = gameplay_camera.global_position
-	pause_camera.look_at(player.global_position + Vector3.UP * 1.0)
+	var visual: Node3D = $Player/Visual
+	var menu_avatar := Transform3D(Basis.from_euler(Vector3(0, deg_to_rad(-30), 0)).scaled(Vector3(2, 2, 2)), Vector3(5.5, 0, 7.5))
+	var menu_camera := Transform3D(Basis.from_euler(Vector3(deg_to_rad(-8), 0, 0)), Vector3(0, 4, 14))
+	var target := visual.global_transform * (menu_avatar.affine_inverse() * menu_camera)
+	target.basis = target.basis.orthonormalized()
+	var from := gameplay_camera.global_transform
+	pause_camera.global_transform = from
 	pause_camera.current = true
 	if pause_tween:
 		pause_tween.kill()
 	pause_tween = create_tween().set_pause_mode(Tween.TWEEN_PAUSE_PROCESS)
-	pause_tween.set_parallel()
-	pause_tween.tween_property(pause_camera, "global_position", target, 0.55).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
-	pause_tween.tween_method(_aim_pause_camera.bind(player), 0.0, 1.0, 0.55).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	pause_tween.tween_method(func(w: float) -> void: pause_camera.global_transform = from.interpolate_with(target, w), 0.0, 1.0, 0.55).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
 
-func _aim_pause_camera(_weight: float, player: Node3D) -> void:
-	pause_camera.look_at(player.global_position + Vector3.UP * 0.9)
+## Tweens from the pause view back to the live gameplay camera, then hands control back to it.
+func _resume_camera_transition() -> void:
+	var from := pause_camera.global_transform
+	if pause_tween:
+		pause_tween.kill()
+	pause_tween = create_tween()
+	pause_tween.tween_method(func(w: float) -> void: pause_camera.global_transform = from.interpolate_with(gameplay_camera.global_transform, w), 0.0, 1.0, 0.55).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN_OUT)
+	pause_tween.tween_callback(func() -> void: gameplay_camera.current = true)
 
-func _create_pause_ui() -> void:
-	pause_layer = CanvasLayer.new()
-	pause_layer.layer = 20
-	pause_layer.process_mode = Node.PROCESS_MODE_ALWAYS
-	pause_layer.visible = false
-	add_child(pause_layer)
-	var dim := ColorRect.new()
-	dim.color = Color(0, 0, 0, 0.64)
-	dim.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	dim.mouse_filter = Control.MOUSE_FILTER_STOP
-	pause_layer.add_child(dim)
-	pause_panel = PanelContainer.new()
-	pause_panel.custom_minimum_size = Vector2(500, 330)
-	pause_panel.set_anchors_preset(Control.PRESET_CENTER)
-	pause_panel.position -= pause_panel.custom_minimum_size / 2.0
-	var style := StyleBoxFlat.new()
-	style.bg_color = Color(0.03, 0.035, 0.05, 0.94)
-	style.border_color = Color(0.55, 0.62, 0.75, 1)
-	style.set_border_width_all(2)
-	style.set_corner_radius_all(10)
-	style.content_margin_left = 34
-	style.content_margin_right = 34
-	style.content_margin_top = 28
-	style.content_margin_bottom = 28
-	pause_panel.add_theme_stylebox_override("panel", style)
-	dim.add_child(pause_panel)
-	var box := VBoxContainer.new()
-	box.add_theme_constant_override("separation", 14)
-	pause_panel.add_child(box)
-	var title := Label.new()
-	title.text = "PAUSED"
-	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	title.add_theme_font_size_override("font_size", 38)
-	title.add_theme_color_override("font_color", Color(0.95, 0.98, 1))
-	box.add_child(title)
-	var continue_button := Button.new()
-	continue_button.text = "CONTINUE"
-	continue_button.custom_minimum_size.y = 64
-	continue_button.add_theme_font_size_override("font_size", 26)
-	continue_button.pressed.connect(_toggle_pause)
-	box.add_child(continue_button)
-	var help := Label.new()
-	help.text = "ESC  Resume"
-	help.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	help.add_theme_color_override("font_color", Color(0.65, 0.7, 0.8))
-	box.add_child(help)
+func _ready() -> void:
+	gameplay_camera = $Player/Pivot/Pitch/Arm/Camera
 	pause_camera = Camera3D.new()
 	pause_camera.name = "PauseCamera"
 	add_child(pause_camera)
-	pause_camera.current = false
-func _ready() -> void:
-	gameplay_camera = $Player/Pivot/Pitch/Arm/Camera
-	_create_pause_ui()
+	pause_ui = preload("res://scenes/menu_ui.tscn").instantiate()
+	pause_ui.play_text = "CONTINUE"
+	pause_ui.layer = 20
+	pause_ui.process_mode = Node.PROCESS_MODE_ALWAYS
+	pause_ui.visible = false
+	pause_ui.play_pressed.connect(_toggle_pause)
+	pause_ui.back_pressed.connect(_toggle_pause)
+	add_child(pause_ui)
 	if map_scene:
 		var map := map_scene.instantiate()
 		$Greybox.add_child(map)
