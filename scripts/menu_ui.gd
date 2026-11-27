@@ -24,7 +24,9 @@ const CREDIT_ROWS := [
 	["Developer", "Tyas"],
 	["Developer", "Faiq"],
 	["Map", "Sketchfab", "https://sketchfab.com/3d-models/map-02-new-york-driving-school-2016-fa9f2d770b894028a85cf1636091af44"],
-	["Avatar", "Sketchfab", "https://sketchfab.com/3d-models/lego-spiderman-a8acef5e02214bdd8360b003bfea5292"]
+	["Avatar", "Sketchfab", "https://sketchfab.com/3d-models/lego-spiderman-a8acef5e02214bdd8360b003bfea5292"],
+	["Background Music", "OpenGameArt", "https://opengameart.org/content/jetstream-joyride-looping"],
+	["SFXs", "OpenGameArt", "https://opengameart.org"]
 ]
 
 const FONT_PATH := "res://assets/ui/Minecraft.ttf"
