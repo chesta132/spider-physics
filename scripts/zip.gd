@@ -1,4 +1,5 @@
 extends Node3D
+const Web := preload("res://scripts/web.gd")
 const Layers := preload("res://scripts/layers.gd")  # collision layer bits
 const Hands := preload("res://scripts/hands.gd")  # hand sockets, shared with the swing webs
 ## Zip to point, two modes:
@@ -234,6 +235,7 @@ func start_perch(cam: Camera3D, body_rid: RID, body_pos: Vector3, body_vel: Vect
 	impulse = Vector3.ZERO
 	f_zip = Vector3.ZERO
 	phase = Phase.SHOOT
+	Web.fire_sfx()
 	return true
 
 
@@ -269,6 +271,7 @@ func start_surface_boost(cam: Camera3D, body_rid: RID, body_pos: Vector3, body_v
 	impulse = Vector3.ZERO
 	f_zip = Vector3.ZERO
 	phase = Phase.SHOOT
+	Web.fire_sfx()
 	return true
 
 

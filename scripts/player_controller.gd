@@ -4,6 +4,7 @@ extends CharacterBody3D
 ## and a Landing state after heavy drops. Each step sums explicit forces, integrates velocity, then
 ## move_and_slide resolves contacts. Godot's solver owns the touchdown; this script only reads it.
 ## Child "Visual" is cosmetic only; its "Body" mesh is recolored per state.
+const Sound := preload("res://scripts/sound.gd")
 
 enum State { IDLE, WALK, RUN, JUMP, FALL, FLY, CHARGE, SUPER, DIVE, FAST_DIVE, LAND, ZIP, WATCHING, SWING_UP, SWING_DOWN, SWING_JUMP, WALL_CRAWL, WALL_RUN, WALL_JUMP, WALL_EDGE_UP, WALL_EDGE_DOWN }
 const STATE_NAMES := ["IDLE", "WALK", "RUN", "JUMP", "FALL", "DEV-FLY", "CHARGE", "SUPER JUMP", "DIVE", "FAST DIVE", "LAND", "ZIP", "WATCHING", "SWING UP", "SWING DOWN", "SWING JUMP", "WALL CRAWL", "WALL RUN", "WALL JUMP", "WALL EDGE UP", "WALL EDGE DOWN"]
@@ -60,6 +61,24 @@ const LEAN_PIVOT := 0.95     # m, the body leans around the hips, not the feet
 const WALL_FACE_TIME := 0.18 # s, blend between the upright body and the wall frame
 const WALL_HUG := 0.20       # m, clearance kept between the body and the face it is on
 const WALL_CRAWL_PIVOT := 0.75  # m, the crawl pivots around the hips; the run around the feet
+const WEB_SOUND = preload("res://assets/sounds/web_shooter.mp3")
+const LAND_SOUND = preload("res://assets/sounds/landing.mp3")
+const WIND_SOUND = preload("res://assets/sounds/wind.ogg")
+const LAND_SFX_MIN_SPEED := 5.0    # m/s, touchdowns slower than this stay silent (a tap jump lands at ~4.9)
+const LAND_SFX_MAX_SPEED := 35.0   # m/s, touchdown speed that plays the loudest thud
+const LAND_SFX_DB_MIN := -22.0     # dB, softest thud
+const LAND_SFX_DB_MAX := -4.0      # dB, hardest thud
+const LAND_SFX_PITCH_HEAVY := 0.85 # pitch of the hardest thud (softest plays at 1.0), harder = deeper
+const LAND_SFX_JITTER := 0.05      # random pitch spread so repeated landings do not sound identical
+const WIND_MIN_SPEED := 6.0        # m/s, below this airborne speed the wind is silent
+const WIND_MAX_SPEED := 32.0       # m/s, airborne speed that plays the wind at full level
+const WIND_DB_MIN := -36.0         # dB, wind level just above silent (the clip itself is quiet, ~-28 dBFS)
+const WIND_DB_MAX := 3.0           # dB, wind level at full speed
+const WIND_PITCH_MIN := 0.85       # pitch at the quietest, rising with speed
+const WIND_PITCH_MAX := 1.2        # pitch at full speed
+const WIND_FADE_IN := 2.5          # 1/s, how fast the wind swells in
+const WIND_FADE_OUT := 4.0         # 1/s, how fast it drops away once on a surface
+const WIND_STOP_LEVEL := 0.01      # level under which the loop is stopped
 
 var state := State.IDLE
 var grounded := false
@@ -112,6 +131,8 @@ var wall_hug := 0.0          # m, how far the model is pulled toward the face
 
 var _shown := -1
 var _shown_webs := 0   # web count the current clip was picked for (1 vs 2 web variants)
+var _wind: AudioStreamPlayer   # looping wind bed, level driven by airborne speed
+var _wind_level := 0.0         # 0..1, smoothed
 var _landing_crack: MeshInstance3D
 var _crack_age := -1.0
 var _crack_released := false
@@ -137,6 +158,12 @@ func _ready() -> void:
 	state_label.visible = OS.is_debug_build()
 	web_l.side = -1.0
 	web_r.side = 1.0
+	WIND_SOUND.set("loop", true)  # the clip is a seamless bed; loop it here so no import setting is needed
+	_wind = AudioStreamPlayer.new()
+	_wind.name = "WindSfx"
+	_wind.stream = WIND_SOUND
+	_wind.volume_db = WIND_DB_MIN
+	add_child(_wind)
 
 
 func _prewarm_animation(path: String) -> void:
@@ -194,6 +221,7 @@ func _physics_process(dt: float) -> void:
 	_web_lean(dt)
 	_update_anim(dt)
 	_update_landing_crack(dt)
+	_update_wind(dt)
 
 
 func _walk(dt: float) -> void:
@@ -558,7 +586,42 @@ func _touchdown(impact: float, drop: float) -> void:
 	landing = drop >= LAND_DROP
 	if landing:
 		_spawn_landing_crack()
+		_landing_sfx(impact)
 	last_event = "Landing"
+
+
+## One thud per touchdown. Louder and deeper the faster the fall; slow touchdowns stay silent.
+func _landing_sfx(impact: float) -> void:
+	if impact < LAND_SFX_MIN_SPEED:
+		return
+	var t := clampf(inverse_lerp(LAND_SFX_MIN_SPEED, LAND_SFX_MAX_SPEED, impact), 0.0, 1.0)
+	var player := AudioStreamPlayer.new()
+	player.stream = LAND_SOUND
+	player.volume_db = lerpf(LAND_SFX_DB_MIN, LAND_SFX_DB_MAX, t)
+	player.pitch_scale = lerpf(1.0, LAND_SFX_PITCH_HEAVY, t) * randf_range(1.0 - LAND_SFX_JITTER, 1.0 + LAND_SFX_JITTER)
+	Sound.play_one_shot_player(player)  # no variance: the pitch is already set above
+
+
+## Wind bed: swells with speed while airborne (swing, fall, dive, zip, super jump), and fades out
+## on the ground, on a wall, on a perch and in dev fly. Stops the loop once it is inaudible.
+func _update_wind(dt: float) -> void:
+	if _wind == null:
+		return
+	var airborne: Variant = not grounded and not fly and not watching and not climbing and not wall_node.active()
+	var target := 0.0
+	if airborne:
+		target = clampf(inverse_lerp(WIND_MIN_SPEED, WIND_MAX_SPEED, velocity.length()), 0.0, 1.0)
+		target = sqrt(target)
+	var rate := WIND_FADE_IN if target > _wind_level else WIND_FADE_OUT
+	_wind_level = lerpf(_wind_level, target, 1.0 - exp(-rate * dt))
+	if _wind_level < WIND_STOP_LEVEL:
+		if _wind.playing:
+			_wind.stop()
+		return
+	if not _wind.playing:
+		_wind.play(randf() * WIND_SOUND.get_length())  # random start so it is not the same gust every time
+	_wind.volume_db = lerpf(WIND_DB_MIN, WIND_DB_MAX, _wind_level)
+	_wind.pitch_scale = lerpf(WIND_PITCH_MIN, WIND_PITCH_MAX, _wind_level)
 
 
 func _refine_state(s: State) -> State:

@@ -1,4 +1,5 @@
 extends Node3D
+const Sound := preload("res://scripts/sound.gd")
 const Layers := preload("res://scripts/layers.gd")  # collision layer bits
 const Hands := preload("res://scripts/hands.gd")  # hand sockets, shared with every web action
 ## One web per hand. Fixed-length pendulum, solved in two places:
@@ -36,6 +37,7 @@ const RELEASE_MAX_SPEED := 24.0        # m/s, total speed cap after the kick
 const STRAND_FADE := 0.6                # s, alpha fade at the end of the strand life
 const STRAND_TIME := 2.0                # s, falling strand lifetime after release
 const STRAND_DRAG := 0.4                # 1/s
+const WEB_SOUND = preload("res://assets/sounds/web_shooter.mp3")
 
 var phase := Phase.IDLE
 var side := -1.0                        # -1 left, +1 right (set by the scene)
@@ -146,7 +148,15 @@ func fire(cam: Camera3D, body_rid: RID) -> bool:
 	tip = shoot_from
 	shoot_t = 0.0
 	phase = Phase.SHOOT
+	fire_sfx()
 	return true
+
+
+static func fire_sfx():
+	var player := AudioStreamPlayer.new()
+	player.stream = WEB_SOUND
+	player.volume_db = -12.5
+	Sound.play_one_shot_player(player, 0.1)
 
 
 ## Let go. Returns the launch velocity change (m/s).

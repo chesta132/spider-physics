@@ -1,9 +1,10 @@
-[gd_scene load_steps=5 format=3]
+[gd_scene format=3 uid="uid://d0xl53kr1iux4"]
 
-[ext_resource type="Script" path="res://scripts/menu.gd" id="1"]
+[ext_resource type="Script" uid="uid://b33x0uw8ojaor" path="res://scripts/menu.gd" id="1"]
 [ext_resource type="PackedScene" path="res://scenes/map_city.tscn" id="2"]
-[ext_resource type="PackedScene" path="res://assets/player_lego/player_rig.tscn" id="3"]
-[ext_resource type="PackedScene" path="res://scenes/menu_ui.tscn" id="4"]
+[ext_resource type="PackedScene" uid="uid://c4jo1mvc2xwp0" path="res://assets/player_lego/player_rig.tscn" id="3"]
+[ext_resource type="PackedScene" uid="uid://b1epbsnvc5qj1" path="res://scenes/menu_ui.tscn" id="4"]
+[ext_resource type="AudioStream" uid="uid://dyq6t3lp1c7xj" path="res://assets/sounds/background_music.mp3" id="5_4ytvr"]
 
 [sub_resource type="Environment" id="env"]
 background_mode = 1
@@ -12,33 +13,34 @@ ambient_light_source = 3
 ambient_light_color = Color(0.32, 0.38, 0.5, 1)
 ambient_light_energy = 0.7
 
-[node name="Menu" type="Node3D"]
+[node name="Menu" type="Node3D" unique_id=1774330684]
 script = ExtResource("1")
 
-[node name="Environment" type="WorldEnvironment" parent="."]
+[node name="Environment" type="WorldEnvironment" parent="." unique_id=1428012825]
 environment = SubResource("env")
 
-[node name="Light" type="DirectionalLight3D" parent="."]
-rotation_degrees = Vector3(-35, -25, 0)
+[node name="Light" type="DirectionalLight3D" parent="." unique_id=2085428495]
+transform = Transform3D(0.90630776, 0.24240388, -0.34618863, 0, 0.81915206, 0.57357645, 0.42261827, -0.5198368, 0.74240386, 0, 0, 0)
 light_color = Color(0.65, 0.75, 1, 1)
 light_energy = 0.8
 
-[node name="City" type="Node3D" parent="."]
-position = Vector3(0, -100.5, -80)
-scale = Vector3(0.7, 0.7, 0.7)
+[node name="City" type="Node3D" parent="." unique_id=683643581]
+transform = Transform3D(0.7, 0, 0, 0, 0.7, 0, 0, 0, 0.7, 0, -100.5, -80)
 
-[node name="Map" parent="City" instance=ExtResource("2")]
+[node name="Map" parent="City" unique_id=916002872 instance=ExtResource("2")]
 
-[node name="Camera" type="Camera3D" parent="."]
-position = Vector3(0, 4, 14)
-rotation_degrees = Vector3(-8, 0, 0)
+[node name="Camera" type="Camera3D" parent="." unique_id=734625703]
+transform = Transform3D(1, 0, 0, 0, 0.99026805, 0.1391731, 0, -0.1391731, 0.99026805, 0, 4, 14)
 current = true
 
-[node name="Avatar" type="Node3D" parent="."]
-position = Vector3(5.5, 0.0, 7.5)
-rotation_degrees = Vector3(0, -30, 0)
-scale = Vector3(2.0, 2.0, 2.0)
+[node name="Avatar" type="Node3D" parent="." unique_id=2146533495]
+transform = Transform3D(1.7320508, 0, -1, 0, 2, 0, 1, 0, 1.7320508, 5.5, 0, 7.5)
 
-[node name="Rig" parent="Avatar" instance=ExtResource("3")]
+[node name="Rig" parent="Avatar" unique_id=674958493 instance=ExtResource("3")]
 
-[node name="UI" parent="." instance=ExtResource("4")]
+[node name="UI" parent="." unique_id=76532701 instance=ExtResource("4")]
+
+[node name="AudioStreamPlayer" type="AudioStreamPlayer" parent="." unique_id=209075258]
+stream = ExtResource("5_4ytvr")
+volume_db = -15.0
+autoplay = true

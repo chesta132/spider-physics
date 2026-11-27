@@ -1,4 +1,5 @@
 extends Node3D
+const Sound := preload("res://scripts/sound.gd")
 ## Map host. With map_scene set, that scene is instanced under Greybox and the player is moved onto
 ## its Spawn marker. With it empty, a procedural greybox is built instead.
 
@@ -19,8 +20,10 @@ const BLOCKS := [
 	[26, 4, 4, 0.5, 10],
 	[-30, 0, 8, 40, 8],  # tall platform for high super-jump dives (Step 2)
 ]
-
-
+var menu_sound = preload("res://assets/sounds/background_music.mp3")
+var menu_player: AudioStreamPlayer
+var ambient_sound = preload("res://assets/sounds/city_ambient.mp3")
+var ambient_player: AudioStreamPlayer
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("ui_cancel") and not get_tree().paused:
@@ -34,8 +37,12 @@ func _toggle_pause() -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE if opening else Input.MOUSE_MODE_CAPTURED
 	if opening:
 		_pause_camera_transition()
+		ambient_player.stream_paused = true
+		menu_player.stream_paused = false
 	else:
 		_resume_camera_transition()
+		menu_player.stream_paused = true
+		ambient_player.stream_paused = false
 
 ## Tweens from gameplay view to a camera placed where the start-menu camera sits relative to its avatar
 ## (menu.tscn: Avatar at (5.5, 0, 7.5), yaw -30, scale 2; Camera at (0, 4, 14)), applied to the player's
@@ -64,6 +71,23 @@ func _resume_camera_transition() -> void:
 	pause_tween.tween_callback(func() -> void: gameplay_camera.current = true)
 
 func _ready() -> void:
+	menu_sound.loop = true
+	menu_player = AudioStreamPlayer.new()
+	menu_player.stream = menu_sound
+	menu_player.volume_db = -15
+	menu_player.process_mode = Node.PROCESS_MODE_ALWAYS
+	add_child(menu_player)
+	menu_player.play()
+	menu_player.stream_paused = true
+
+	ambient_sound.loop = true
+	ambient_player = AudioStreamPlayer.new()
+	ambient_player.stream = ambient_sound
+	ambient_player.volume_db = -15
+	ambient_player.process_mode = Node.PROCESS_MODE_ALWAYS
+	add_child(ambient_player)
+	ambient_player.play()
+
 	gameplay_camera = $Player/Pivot/Pitch/Arm/Camera
 	pause_camera = Camera3D.new()
 	pause_camera.name = "PauseCamera"

@@ -18,7 +18,6 @@ config/icon="res://icon.svg"
 [autoload]
 
 ArgosRuntime="*res://addons/argos/argos_runtime.gd"
-BackgroundMusic="*uid://dp2foeejipf23"
 
 [display]
 
