@@ -53,7 +53,8 @@ const ANIM_FADE := 0.18      # s, crossfade between the grounded clips (idle/wal
 const ANIM_SNAP := 0.10      # s, faster blend into the held jump / landing poses
 const SWING_JUMP_LOOP_START := 0.4  # s, swing_jump = 0.2 s launch pose + 0.2 s blend, then loops from here to the end
 const ANIM_RATE := 0.9       # clip seconds per second at walk speed; scaled by actual ground speed
-const LEAN_PITCH := 35.0     # deg, biggest torso pitch toward the web anchor
+const LEAN_PITCH := 35.0     # deg, biggest torso pitch toward the zip target
+const LEAN_SWING_PITCH := 55.0  # deg, biggest torso pitch while swinging, tipped forward (down-swing) or back (up-swing)
 const LEAN_BANK := 25.0      # deg, biggest roll into the swing arc
 const LEAN_IN := 6.0         # 1/s, blend into the web lean
 const LEAN_OUT := 4.0        # 1/s, blend back upright
@@ -729,8 +730,9 @@ func _wall_frame() -> Basis:
 	return Basis(n.cross(face), n, face)
 
 
-## Cosmetic only: lean the body along the live web, so a swing pitches toward the anchor and
-## banks into the arc instead of standing upright. Physics never reads it.
+## Cosmetic only: lean the body along the live web. On a swing it pitches with the rope (forward on
+## the way down, back on the way up) and banks into the arc; on a zip it leans at the target.
+## Physics never reads it.
 func _web_lean(dt: float) -> void:
 	if model == null:
 		return
@@ -743,7 +745,13 @@ func _web_lean(dt: float) -> void:
 		var vb := visual.global_transform.basis  # yaw only: +Z is the direction of travel
 		var fwd := to.dot(vb.z)
 		var lat := to.dot(vb.x)
-		want_pitch = clampf(atan2(to.y, maxf(fwd, 0.15)), -deg_to_rad(LEAN_PITCH), deg_to_rad(LEAN_PITCH))
+		if _web_on():
+			# The body hangs along the rope: its up axis points at the anchor. Anchor ahead (swinging
+			# down) tips the head forward so the chest faces down; anchor behind (swinging up) tips it
+			# back so the chest faces up. Pitch follows the arc up and down, not just yaw and bank.
+			want_pitch = clampf(atan2(fwd, maxf(to.y, 0.05)), -deg_to_rad(LEAN_SWING_PITCH), deg_to_rad(LEAN_SWING_PITCH))
+		else:
+			want_pitch = clampf(atan2(to.y, maxf(fwd, 0.15)), -deg_to_rad(LEAN_PITCH), deg_to_rad(LEAN_PITCH))
 		want_roll = -clampf(atan2(lat, maxf(absf(fwd), 0.15)), -deg_to_rad(LEAN_BANK), deg_to_rad(LEAN_BANK))
 	var k := 1.0 - exp(-(LEAN_IN if on else LEAN_OUT) * dt)
 	lean_pitch = lerpf(lean_pitch, want_pitch, k)

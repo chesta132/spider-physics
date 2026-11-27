@@ -81,7 +81,7 @@ func _initialize() -> void:
 		await physics_frame  # early in the swing the anchor is well above the body
 	var early_pitch: float = model.rotation.x
 	check("body pitches toward an anchor above it (%.1f deg)" % rad_to_deg(early_pitch),
-		early_pitch > deg_to_rad(5.0) and early_pitch < deg_to_rad(36.0))
+		early_pitch > deg_to_rad(5.0) and early_pitch < deg_to_rad(56.0))
 	check("right web attaches", wr.fire(cam, p.get_rid()))
 	for i in 65:
 		await physics_frame
@@ -101,7 +101,7 @@ func _initialize() -> void:
 		sr.distance_to(hands.point(1.0)) < 0.15)
 	check("strands are not both on the body centre (%.2f m apart)" % sl.distance_to(sr), sl.distance_to(sr) > 0.3)
 
-	# 4. Lean: pitched toward an anchor that is up and ahead, banked by the side it is on.
+	# 4. Lean: pitched along the rope (forward or back with the arc), banked by the side it is on.
 	var lean_pitch: float = model.rotation.x
 	var lean_roll: float = model.rotation.z
 	check("model follows the lean state (%.2f vs %.2f deg)" % [rad_to_deg(lean_pitch), rad_to_deg(p.lean_pitch)],
