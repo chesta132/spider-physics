@@ -36,6 +36,19 @@ jobs:
         run: |
           mkdir -p build/windows build/linux
 
+      - name: Cache .godot imported assets
+        uses: actions/cache@v4
+        with:
+          path: .godot
+          key: godot-4-7-${{ hashFiles('project.godot', '**/*.gltf', '**/*.glb', '**/*.png', '**/*.wav') }}
+          restore-keys: |
+            godot-4-7-
+
+      - name: Import project assets
+        timeout-minutes: 15
+        run: |
+          godot --headless --quit --import
+
       - name: Export Windows (.exe)
         run: |
           godot --headless --export-release "Windows Desktop" build/windows/SpiderPhysics.exe
