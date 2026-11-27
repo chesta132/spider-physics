@@ -18,16 +18,26 @@ const HELP_ROWS := [
 	["ESC", "Pause / resume game"],
 	["F3", "Physics menu"]
 ]
+const CREDIT_ROWS := [
+	["Developer", "Chesta"],
+	["Developer", "Syafiq"],
+	["Developer", "Tyas"],
+	["Developer", "Faiq"],
+	["Map", "Sketchfab", "https://sketchfab.com/3d-models/map-02-new-york-driving-school-2016-fa9f2d770b894028a85cf1636091af44"],
+	["Avatar", "Sketchfab", "https://sketchfab.com/3d-models/lego-spiderman-a8acef5e02214bdd8360b003bfea5292"]
+]
 
 const FONT_PATH := "res://assets/ui/Minecraft.ttf"
 const TEXT_DARK := Color(0.17, 0.17, 0.19)
 const SPLASH_ANGLE := -0.314159
+const LINK_COLOR := Color(0.55, 0.75, 1.0)
+const LINK_HOVER_ALPHA := 0.6
 
 @export var play_text := "PLAY"
 @onready var splash: Button = $Root/Title/Splash
 @onready var title: Control = $Root/Title
-@onready var buttons: Array[Button] = [$Root/Buttons/Play, $Root/Buttons/Help, $Root/Buttons/Quit]
-var help_overlay: Control
+@onready var buttons: Array[Button] = [$Root/Buttons/Play, $Root/Buttons/Help,$Root/Buttons/Credit, $Root/Buttons/Quit]
+var panel_overlay: Control
 var font: Font
 var font_bold: Font
 
@@ -42,6 +52,7 @@ func _ready() -> void:
 	$Root/Buttons/Play.text = play_text
 	$Root/Buttons/Play.pressed.connect(play_pressed.emit)
 	$Root/Buttons/Help.pressed.connect(_help)
+	$Root/Buttons/Credit.pressed.connect(_credit)
 	$Root/Buttons/Quit.pressed.connect(func() -> void: get_tree().quit())
 	splash.pressed.connect(func() -> void: OS.shell_open(SPLASH_URL))
 	for b in buttons:
@@ -65,8 +76,8 @@ func _process(_delta: float) -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if not event.is_action_pressed("ui_cancel"):
 		return
-	if help_overlay and help_overlay.visible:
-		help_overlay.hide()
+	if panel_overlay and is_instance_valid(panel_overlay):
+		_close_panel()
 	elif visible:
 		back_pressed.emit()
 	else:
@@ -129,15 +140,30 @@ func _style_button(b: Button, size: int) -> void:
 	b.add_theme_color_override("font_hover_color", Color(0.06, 0.06, 0.1))
 
 func _help() -> void:
-	if help_overlay:
-		help_overlay.show()
-		return
+	show_panel("HOW TO PLAY", "KEYBINDS", HELP_ROWS)
+
+func _credit() -> void:
+	show_panel("CREDITS", "SPECIAL THANKS TO", CREDIT_ROWS)
+
+func _make_link(label: Label, url: String) -> void:
+	label.add_theme_color_override("font_color", LINK_COLOR)
+	label.mouse_filter = Control.MOUSE_FILTER_STOP
+	label.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	label.tooltip_text = url
+	label.mouse_entered.connect(func() -> void: label.modulate.a = LINK_HOVER_ALPHA)
+	label.mouse_exited.connect(func() -> void: label.modulate.a = 1.0)
+	label.gui_input.connect(func(e: InputEvent) -> void:
+		if e is InputEventMouseButton and e.pressed and e.button_index == MOUSE_BUTTON_LEFT:
+			OS.shell_open(url))
+
+func show_panel(heading_text: String, hint_text: String, rows_data: Array, close_text := "CLOSE  (ESC)") -> void:
+	_close_panel()
 	var overlay := ColorRect.new()
 	overlay.color = Color(0, 0, 0, 0.62)
 	overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	overlay.mouse_filter = Control.MOUSE_FILTER_STOP
 	overlay.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-	help_overlay = overlay
+	panel_overlay = overlay
 	add_child(overlay)
 
 	var center := CenterContainer.new()
@@ -161,19 +187,20 @@ func _help() -> void:
 	column.add_theme_constant_override("separation", 10)
 	popup.add_child(column)
 	var heading := Label.new()
-	heading.text = "HOW TO PLAY"
+	heading.text = heading_text
 	heading.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	heading.add_theme_font_override("font", font_bold)
 	heading.add_theme_font_size_override("font_size", 40)
 	heading.add_theme_color_override("font_color", TEXT_DARK)
 	column.add_child(heading)
-	var hint := Label.new()
-	hint.text = "KEYBINDS"
-	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	hint.add_theme_font_override("font", font)
-	hint.add_theme_font_size_override("font_size", 16)
-	hint.add_theme_color_override("font_color", Color(0.32, 0.32, 0.38))
-	column.add_child(hint)
+	if not hint_text.is_empty():
+		var hint := Label.new()
+		hint.text = hint_text
+		hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		hint.add_theme_font_override("font", font)
+		hint.add_theme_font_size_override("font_size", 16)
+		hint.add_theme_color_override("font_color", Color(0.32, 0.32, 0.38))
+		column.add_child(hint)
 	var rows := PanelContainer.new()
 	rows.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	var inset := _bevel(Color(0.30, 0.30, 0.33), Color(0.22, 0.22, 0.25), Color(0.42, 0.42, 0.46), Color(0.07, 0.07, 0.09))
@@ -186,7 +213,7 @@ func _help() -> void:
 	var list := VBoxContainer.new()
 	list.add_theme_constant_override("separation", 6)
 	rows.add_child(list)
-	for row in HELP_ROWS:
+	for row in rows_data:
 		var line := HBoxContainer.new()
 		line.add_theme_constant_override("separation", 20)
 		var key := Label.new()
@@ -201,11 +228,18 @@ func _help() -> void:
 		action.add_theme_font_override("font", font)
 		action.add_theme_font_size_override("font_size", 16)
 		action.add_theme_color_override("font_color", Color(0.92, 0.92, 0.95))
+		if row.size() > 2:
+			_make_link(action, row[2])
 		line.add_child(action)
 		list.add_child(line)
 	var close := Button.new()
-	close.text = "CLOSE  (ESC)"
+	close.text = close_text
 	close.custom_minimum_size.y = 52
 	_style_button(close, 24)
-	close.pressed.connect(overlay.hide)
+	close.pressed.connect(_close_panel)
 	column.add_child(close)
+
+func _close_panel() -> void:
+	if panel_overlay and is_instance_valid(panel_overlay):
+		panel_overlay.queue_free()
+	panel_overlay = null
