@@ -44,6 +44,7 @@ var font: Font
 var font_bold: Font
 
 func _ready() -> void:
+	var version: String = ProjectSettings.get_setting("application/config/version", "0.0")
 	font = load(FONT_PATH)
 	font_bold = font
 	var title_font := FontVariation.new()
@@ -67,6 +68,7 @@ func _ready() -> void:
 	footer.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.85))
 	footer.add_theme_constant_override("shadow_offset_x", 2)
 	footer.add_theme_constant_override("shadow_offset_y", 2)
+	footer.text = "debug" if  OS.is_debug_build() else "v" + version
 	title.resized.connect(_place_splash)
 	_place_splash()
 

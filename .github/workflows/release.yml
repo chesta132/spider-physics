@@ -45,6 +45,29 @@ jobs:
           restore-keys: |
             godot-4-7-
 
+      - name: Inject version
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"        # v1.2.0 -> 1.2.0
+          CORE="${VERSION%%-*}"                 # 1.2.0-beta -> 1.2.0
+          IFS=. read -r a b c d <<< "$CORE"
+          WIN_VERSION="${a:-0}.${b:-0}.${c:-0}.${d:-0}"   # 1.2.0 -> 1.2.0.0
+          echo "Game version: $VERSION | Windows version: $WIN_VERSION"
+
+          # project.godot: fail if the line is missing to avoid silent failure
+          if ! grep -q '^config/version=' project.godot; then
+            echo "config/version is missing in project.godot; set it in Project Settings and commit first"
+            exit 1
+          fi
+          sed -i "s|^config/version=.*|config/version=\"$VERSION\"|" project.godot
+
+          # export_presets.cfg: set Windows .exe metadata
+          if [ -f export_presets.cfg ]; then
+            sed -i "s|^application/file_version=.*|application/file_version=\"$WIN_VERSION\"|" export_presets.cfg
+            sed -i "s|^application/product_version=.*|application/product_version=\"$WIN_VERSION\"|" export_presets.cfg
+          fi
+
+          grep -n "version=" project.godot export_presets.cfg || true
+
       - name: Import project assets
         timeout-minutes: 15
         run: |
